@@ -59,4 +59,4 @@ Bundles execute within a leader slot and do not cross slot boundaries. If the ta
 
 ## Architecture Document
 
-See [docs/architecture.md](docs/architecture.md). Publish this content to a public Google Doc, Notion page, Figma board, or other public URL before submission.
+See [docs/architecture.md](docs/architecture.md) for the full judged architecture write-up and [docs/architecture-animated.html](docs/architecture-animated.html) for the animated execution walkthrough. Publish one or both to a public Google Doc, Notion page, Figma board, or static URL before submission.

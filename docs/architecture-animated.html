@@ -1,0 +1,929 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Smart Transaction Stack - Animated Architecture</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0f1115;
+        --surface: #171a20;
+        --surface-2: #20242c;
+        --surface-3: #272d36;
+        --text: #f5f7fb;
+        --muted: #aeb7c4;
+        --border: #353d49;
+        --primary: #76d6b4;
+        --primary-2: #4fb9ff;
+        --warning: #f5c76b;
+        --danger: #ff8d8d;
+        --radius: 8px;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 15px;
+        letter-spacing: 0;
+      }
+
+      a,
+      button {
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      a:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 3px;
+      }
+
+      .shell {
+        width: min(1280px, calc(100vw - 32px));
+        margin: 0 auto;
+      }
+
+      header {
+        border-bottom: 1px solid var(--border);
+        background: #11141a;
+      }
+
+      .hero {
+        display: grid;
+        gap: 20px;
+        padding: 28px 0;
+      }
+
+      .eyebrow {
+        margin: 0 0 6px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 900px;
+        font-size: clamp(30px, 6vw, 56px);
+        line-height: 1.03;
+      }
+
+      h2 {
+        font-size: 22px;
+        line-height: 1.2;
+      }
+
+      h3 {
+        font-size: 16px;
+      }
+
+      .hero-copy {
+        max-width: 860px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.65;
+      }
+
+      .nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .nav a,
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        color: var(--text);
+        padding: 0 14px;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .nav a:hover,
+      .button:hover {
+        border-color: var(--primary);
+      }
+
+      main {
+        display: grid;
+        gap: 28px;
+        padding: 28px 0 48px;
+      }
+
+      .section {
+        display: grid;
+        gap: 14px;
+      }
+
+      .panel {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 16px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .panel-body {
+        padding: 16px;
+      }
+
+      .grid-4 {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .metric {
+        display: grid;
+        gap: 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        padding: 14px;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .metric strong {
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 20px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .animation-layout {
+        display: grid;
+        grid-template-columns: 1.25fr 0.75fr;
+        gap: 16px;
+      }
+
+      .map {
+        position: relative;
+        min-height: 620px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+          var(--surface);
+        background-size: 28px 28px;
+        overflow: hidden;
+      }
+
+      .node {
+        position: absolute;
+        width: min(190px, 28vw);
+        min-height: 76px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: rgba(32, 36, 44, 0.96);
+        padding: 12px;
+        transition: border-color 150ms ease-out, transform 150ms ease-out, background-color 150ms ease-out;
+      }
+
+      .node strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 13px;
+      }
+
+      .node span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.35;
+      }
+
+      .node.active {
+        border-color: var(--primary);
+        background: #20342f;
+        transform: translateY(-2px);
+      }
+
+      .node.complete {
+        border-color: #4b7568;
+      }
+
+      .node.failure {
+        border-color: #6b4e4e;
+      }
+
+      .edge {
+        position: absolute;
+        height: 2px;
+        background: var(--border);
+        transform-origin: left center;
+      }
+
+      .edge::after {
+        content: "";
+        display: block;
+        width: 0;
+        height: 2px;
+        background: var(--primary);
+        transition: width 250ms ease-in-out;
+      }
+
+      .edge.active::after,
+      .edge.complete::after {
+        width: 100%;
+      }
+
+      .packet {
+        position: absolute;
+        z-index: 5;
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        background: var(--primary);
+        box-shadow: 0 0 0 6px rgba(118, 214, 180, 0.16);
+        transform: translate(-50%, -50%);
+        transition: left 360ms cubic-bezier(0.4, 0, 0.2, 1), top 360ms cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .step-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .step-number {
+        width: fit-content;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        color: var(--primary);
+        font-family: var(--mono);
+        padding: 4px 9px;
+      }
+
+      .step-title {
+        font-size: 20px;
+      }
+
+      .step-copy {
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .artifact {
+        display: grid;
+        gap: 8px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface-2);
+        padding: 12px;
+      }
+
+      .artifact code,
+      .mono {
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .timeline {
+        display: grid;
+        gap: 8px;
+      }
+
+      .timeline button {
+        display: grid;
+        grid-template-columns: 30px 1fr;
+        gap: 8px;
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--surface);
+        color: var(--text);
+        padding: 10px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .timeline button.active {
+        border-color: var(--primary);
+        background: #1d302c;
+      }
+
+      .timeline .index {
+        color: var(--primary);
+        font-family: var(--mono);
+      }
+
+      .timeline .label {
+        color: var(--muted);
+        line-height: 1.35;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .text-block {
+        color: var(--muted);
+        line-height: 1.7;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      th,
+      td {
+        padding: 12px;
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      td {
+        line-height: 1.5;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0 8px;
+        color: var(--primary);
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+
+      .warning {
+        color: var(--warning);
+      }
+
+      .danger {
+        color: var(--danger);
+      }
+
+      .source-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        .node,
+        .edge::after,
+        .packet {
+          transition: none;
+        }
+      }
+
+      @media (max-width: 980px) {
+        .animation-layout,
+        .two-col {
+          grid-template-columns: 1fr;
+        }
+
+        .grid-4 {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .map {
+          min-height: 740px;
+        }
+      }
+
+      @media (max-width: 620px) {
+        .grid-4 {
+          grid-template-columns: 1fr;
+        }
+
+        .node {
+          width: 168px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="shell hero">
+        <div>
+          <p class="eyebrow">Animated architecture walkthrough</p>
+          <h1>Smart Transaction Stack</h1>
+        </div>
+        <p class="hero-copy">
+          A live Solana transaction infrastructure stack that watches Yellowstone streams, waits for Jito leader windows, submits real Jito bundles, records lifecycle evidence, and lets an AI agent decide the blockhash-expiry retry.
+        </p>
+        <nav class="nav" aria-label="Architecture sections">
+          <a href="#execution">Execution</a>
+          <a href="#components">Components</a>
+          <a href="#failures">Failures</a>
+          <a href="#agent">AI agent</a>
+          <a href="#evidence">Evidence</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="shell">
+      <section class="grid-4" aria-label="Architecture summary">
+        <article class="metric">
+          <span>Submission path</span>
+          <strong>Jito bundle</strong>
+        </article>
+        <article class="metric">
+          <span>Observability</span>
+          <strong>Yellowstone</strong>
+        </article>
+        <article class="metric">
+          <span>Evidence</span>
+          <strong>SQLite</strong>
+        </article>
+        <article class="metric">
+          <span>AI decision</span>
+          <strong>Retry</strong>
+        </article>
+      </section>
+
+      <section id="execution" class="section">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Live execution animation</p>
+              <h2>From operator command to finalized lifecycle evidence</h2>
+            </div>
+            <div class="controls">
+              <button id="play" class="button" type="button">Pause</button>
+              <button id="prev" class="button" type="button">Previous</button>
+              <button id="next" class="button" type="button">Next</button>
+            </div>
+          </div>
+          <div class="panel-body animation-layout">
+            <div class="map" aria-label="Animated service topology">
+              <div id="packet" class="packet" aria-hidden="true"></div>
+
+              <div class="edge" data-edge="0" style="left: 16%; top: 16%; width: 18%; transform: rotate(0deg);"></div>
+              <div class="edge" data-edge="1" style="left: 36%; top: 18%; width: 20%; transform: rotate(28deg);"></div>
+              <div class="edge" data-edge="2" style="left: 36%; top: 18%; width: 20%; transform: rotate(0deg);"></div>
+              <div class="edge" data-edge="3" style="left: 36%; top: 18%; width: 18%; transform: rotate(-26deg);"></div>
+              <div class="edge" data-edge="4" style="left: 58%; top: 18%; width: 21%; transform: rotate(34deg);"></div>
+              <div class="edge" data-edge="5" style="left: 58%; top: 42%; width: 20%; transform: rotate(0deg);"></div>
+              <div class="edge" data-edge="6" style="left: 78%; top: 42%; width: 16%; transform: rotate(90deg);"></div>
+              <div class="edge" data-edge="7" style="left: 60%; top: 62%; width: 19%; transform: rotate(0deg);"></div>
+              <div class="edge" data-edge="8" style="left: 38%; top: 62%; width: 18%; transform: rotate(0deg);"></div>
+              <div class="edge" data-edge="9" style="left: 22%; top: 64%; width: 18%; transform: rotate(30deg);"></div>
+              <div class="edge" data-edge="10" style="left: 28%; top: 82%; width: 36%; transform: rotate(0deg);"></div>
+
+              <div class="node" data-node="operator" style="left: 4%; top: 8%;">
+                <strong>Operator</strong>
+                <span>Runs `doctor`, `run --live`, fault injection, dashboard, or export.</span>
+              </div>
+              <div class="node" data-node="cli" style="left: 26%; top: 8%;">
+                <strong>txstack CLI</strong>
+                <span>Loads config, enforces --live, creates service clients.</span>
+              </div>
+              <div class="node" data-node="rpc" style="left: 56%; top: 2%;">
+                <strong>Solana RPC</strong>
+                <span>Blockhash, simulation, balance, block height.</span>
+              </div>
+              <div class="node" data-node="jito" style="left: 56%; top: 28%;">
+                <strong>Jito Block Engine</strong>
+                <span>Tip accounts, leader windows, sendBundle, bundle status.</span>
+              </div>
+              <div class="node" data-node="ys" style="left: 28%; top: 48%;">
+                <strong>Yellowstone gRPC</strong>
+                <span>Live signature, status, and slot commitment stream.</span>
+              </div>
+              <div class="node" data-node="builder" style="left: 77%; top: 30%;">
+                <strong>Bundle Builder</strong>
+                <span>Memo plus tip transfer, signed as a versioned transaction.</span>
+              </div>
+              <div class="node failure" data-node="agent" style="left: 4%; top: 62%;">
+                <strong>AI Retry Agent</strong>
+                <span>Classifies failure and decides refresh, retip, wait, retry.</span>
+              </div>
+              <div class="node" data-node="store" style="left: 56%; top: 62%;">
+                <strong>SQLite Evidence</strong>
+                <span>Submissions, lifecycle events, failure and agent JSON.</span>
+              </div>
+              <div class="node" data-node="dashboard" style="left: 38%; top: 82%;">
+                <strong>Dashboard and Export</strong>
+                <span>Read-only UI plus judge-ready JSONL and CSV.</span>
+              </div>
+            </div>
+
+            <aside class="step-card" aria-live="polite">
+              <span id="step-number" class="step-number">Step 01</span>
+              <h3 id="step-title" class="step-title">Initialize operator command</h3>
+              <p id="step-copy" class="step-copy"></p>
+              <div class="artifact">
+                <span class="eyebrow">Evidence created at this step</span>
+                <code id="step-artifact">command intent</code>
+              </div>
+              <div class="timeline" id="timeline" aria-label="Execution timeline"></div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section id="components" class="section">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Component model</p>
+              <h2>What each subsystem owns</h2>
+            </div>
+          </div>
+          <div class="panel-body two-col">
+            <article class="text-block">
+              <h3>Control plane</h3>
+              <p>
+                The CLI is the control plane. It decides which workflow to run, loads `.env`, refuses spend-capable commands unless `--live` is present, and wires all service clients together. The dashboard is deliberately excluded from this path so viewing evidence cannot mutate chain state.
+              </p>
+            </article>
+            <article class="text-block">
+              <h3>Data plane</h3>
+              <p>
+                The data plane is the Jito and Yellowstone path. Jito accepts the signed bundle and reports bundle-level status. Yellowstone observes the transaction signature and slot commitment progression so the final lifecycle log is stream-confirmed rather than RPC-only.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="failures" class="section">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Failure strategy</p>
+              <h2>How the stack reasons about bad outcomes</h2>
+            </div>
+          </div>
+          <div class="panel-body">
+            <table>
+              <thead>
+                <tr>
+                  <th>Failure</th>
+                  <th>Where it comes from</th>
+                  <th>What the stack does</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="badge">expired_blockhash</span></td>
+                  <td>Block height exceeds the signed transaction's last valid block height.</td>
+                  <td>Builds evidence, asks the AI agent, refreshes blockhash only if the agent returns a valid retry decision.</td>
+                </tr>
+                <tr>
+                  <td><span class="badge">fee_too_low</span></td>
+                  <td>Jito auction or bundle status indicates the tip was not competitive.</td>
+                  <td>Classifies the reason and preserves the live tip context for the next decision.</td>
+                </tr>
+                <tr>
+                  <td><span class="badge">compute_exceeded</span></td>
+                  <td>Simulation or runtime logs show compute budget exhaustion.</td>
+                  <td>Records the fault so the operator can distinguish program/resource issues from network issues.</td>
+                </tr>
+                <tr>
+                  <td><span class="badge">bundle_failure</span></td>
+                  <td>Jito reports failed, invalid, or timed-out bundle status.</td>
+                  <td>Stops treating the attempt as a success and writes the failure to the lifecycle log.</td>
+                </tr>
+                <tr>
+                  <td><span class="badge">stream_timeout</span></td>
+                  <td>Yellowstone does not observe the signature lifecycle in time.</td>
+                  <td>Fails closed. The stack does not invent a processed/confirmed/finalized state.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section id="agent" class="section">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">AI agent contract</p>
+              <h2>The model owns the retry decision, not the transaction signing surface</h2>
+            </div>
+          </div>
+          <div class="panel-body two-col">
+            <article class="text-block">
+              <h3>Agent input</h3>
+              <ul class="source-list">
+                <li>failure message and classification context</li>
+                <li>signature and bundle id when available</li>
+                <li>fault mode</li>
+                <li>current slot and Jito leader window</li>
+                <li>live tip quote and tip-floor sample</li>
+                <li>blockhash, last valid block height, and current block height</li>
+                <li>Jito status and simulation logs when available</li>
+              </ul>
+            </article>
+            <article class="text-block">
+              <h3>Agent output</h3>
+              <ul class="source-list">
+                <li>`failure_classification`</li>
+                <li>`retry_action`</li>
+                <li>`blockhash_strategy`</li>
+                <li>`tip_lamports`</li>
+                <li>`wait_slots`</li>
+                <li>`confidence`</li>
+                <li>`reasoning_summary`</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="evidence" class="section">
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <p class="eyebrow">Evidence model</p>
+              <h2>What the judge can verify</h2>
+            </div>
+          </div>
+          <div class="panel-body">
+            <table>
+              <thead>
+                <tr>
+                  <th>Artifact</th>
+                  <th>Produced by</th>
+                  <th>Why it matters</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="mono">txstack.sqlite</td>
+                  <td>Live runner and lifecycle tracker</td>
+                  <td>Durable source of truth for submissions, stages, failures, and AI decisions.</td>
+                </tr>
+                <tr>
+                  <td class="mono">lifecycle-&lt;timestamp&gt;.jsonl</td>
+                  <td>`pnpm run export`</td>
+                  <td>Line-delimited evidence that can be inspected or replayed by scripts.</td>
+                </tr>
+                <tr>
+                  <td class="mono">lifecycle-&lt;timestamp&gt;.csv</td>
+                  <td>`pnpm run export`</td>
+                  <td>Spreadsheet-friendly view of signatures, slots, timings, tips, and failures.</td>
+                </tr>
+                <tr>
+                  <td class="mono">dashboard</td>
+                  <td>`pnpm run dashboard`</td>
+                  <td>Visual proof that the stack understands lifecycle progression and failure context.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const steps = [
+        {
+          node: "operator",
+          title: "Initialize operator command",
+          copy: "The operator starts with `doctor`, `run --live`, `fault:blockhash-expiry --live`, `dashboard`, or `export`. Spend-capable commands require `--live` so the stack cannot submit mainnet bundles by accident.",
+          artifact: "command intent and live-spend guard",
+          edge: 0
+        },
+        {
+          node: "cli",
+          title: "Load configuration and create clients",
+          copy: "The CLI parses `.env`, normalizes the Yellowstone endpoint, enforces tip rails, loads the payer when needed, and constructs RPC, Jito, Yellowstone, SQLite, and OpenAI services.",
+          artifact: "validated AppConfig",
+          edge: 1
+        },
+        {
+          node: "rpc",
+          title: "Read confirmed blockhash and simulate",
+          copy: "Solana RPC provides a confirmed blockhash, wallet balance, simulation, and block-height reads. RPC is not the only lifecycle source; it supports construction and secondary verification.",
+          artifact: "blockhash and lastValidBlockHeight",
+          edge: 2
+        },
+        {
+          node: "jito",
+          title: "Wait for Jito leader window",
+          copy: "The Jito searcher client reads the next scheduled leader. The runner waits until the next leader is inside the configured slot window before submitting.",
+          artifact: "currentSlot, nextLeaderSlot, slotsUntilLeader",
+          edge: 3
+        },
+        {
+          node: "jito",
+          title: "Quote live tip data",
+          copy: "The tip oracle pulls Jito tip accounts and live tip-floor percentiles. It converts the selected percentile into lamports and clamps it inside configured safety rails.",
+          artifact: "tipLamports, tipSource, tipAccount",
+          edge: 4
+        },
+        {
+          node: "builder",
+          title: "Build and sign bundle transaction",
+          copy: "The builder creates a versioned transaction with optional fault injection, a memo, and a transfer to the selected Jito tip account, then signs it with the configured payer.",
+          artifact: "base64 transaction and signature",
+          edge: 5
+        },
+        {
+          node: "jito",
+          title: "Submit Jito bundle",
+          copy: "The signed transaction is sent through Jito `sendBundle`. The returned bundle id is stored with the signature so the attempt can be checked by Jito status and explorer data.",
+          artifact: "bundle id and submitted timestamp",
+          edge: 6
+        },
+        {
+          node: "ys",
+          title: "Stream lifecycle progression",
+          copy: "Yellowstone subscriptions watch the target signature and slot commitment updates. Processed, confirmed, and finalized are recorded as separate observed stages.",
+          artifact: "processed, confirmed, finalized events",
+          edge: 7
+        },
+        {
+          node: "agent",
+          title: "Autonomous retry branch",
+          copy: "During the blockhash-expiry fault, the runner waits past `lastValidBlockHeight`, submits, records the failure, and asks the AI agent whether to refresh the blockhash, retip, wait, and retry.",
+          artifact: "strict retry_decision JSON",
+          edge: 8
+        },
+        {
+          node: "store",
+          title: "Persist judge evidence",
+          copy: "The SQLite store keeps one submission row plus append-style lifecycle events. It stores slots, timestamps, latency inputs, tip data, failure classification, and agent reasoning.",
+          artifact: "bundle_submissions and lifecycle_events",
+          edge: 9
+        },
+        {
+          node: "dashboard",
+          title: "View and export lifecycle proof",
+          copy: "The dashboard reads SQLite without mutating chain state. Export writes JSONL and CSV only from persisted live evidence. Empty evidence stays empty until real bundle submissions run.",
+          artifact: "dashboard, JSONL, CSV",
+          edge: 10
+        }
+      ];
+
+      const nodePositions = {
+        operator: [13, 14],
+        cli: [35, 14],
+        rpc: [65, 8],
+        jito: [65, 34],
+        builder: [86, 36],
+        ys: [37, 54],
+        agent: [13, 68],
+        store: [65, 68],
+        dashboard: [47, 86]
+      };
+
+      let current = 0;
+      let playing = true;
+      let timer = null;
+
+      const packet = document.querySelector("#packet");
+      const title = document.querySelector("#step-title");
+      const copy = document.querySelector("#step-copy");
+      const number = document.querySelector("#step-number");
+      const artifact = document.querySelector("#step-artifact");
+      const timeline = document.querySelector("#timeline");
+      const play = document.querySelector("#play");
+      const next = document.querySelector("#next");
+      const prev = document.querySelector("#prev");
+
+      for (let index = 0; index < steps.length; index += 1) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.innerHTML = `<span class="index">${String(index + 1).padStart(2, "0")}</span><span class="label">${escapeHtml(steps[index].title)}</span>`;
+        button.addEventListener("click", () => {
+          playing = false;
+          play.textContent = "Play";
+          setStep(index);
+        });
+        timeline.appendChild(button);
+      }
+
+      play.addEventListener("click", () => {
+        playing = !playing;
+        play.textContent = playing ? "Pause" : "Play";
+        schedule();
+      });
+
+      next.addEventListener("click", () => {
+        playing = false;
+        play.textContent = "Play";
+        setStep((current + 1) % steps.length);
+      });
+
+      prev.addEventListener("click", () => {
+        playing = false;
+        play.textContent = "Play";
+        setStep((current - 1 + steps.length) % steps.length);
+      });
+
+      setStep(0);
+      schedule();
+
+      function setStep(index) {
+        current = index;
+        const step = steps[index];
+        title.textContent = step.title;
+        copy.textContent = step.copy;
+        number.textContent = `Step ${String(index + 1).padStart(2, "0")}`;
+        artifact.textContent = step.artifact;
+
+        document.querySelectorAll(".node").forEach((node) => {
+          const name = node.getAttribute("data-node");
+          node.classList.toggle("active", name === step.node);
+          node.classList.toggle("complete", steps.findIndex((item) => item.node === name) < index);
+        });
+
+        document.querySelectorAll(".edge").forEach((edge) => {
+          const edgeIndex = Number(edge.getAttribute("data-edge"));
+          edge.classList.toggle("active", edgeIndex === step.edge);
+          edge.classList.toggle("complete", edgeIndex < step.edge);
+        });
+
+        document.querySelectorAll(".timeline button").forEach((button, buttonIndex) => {
+          button.classList.toggle("active", buttonIndex === index);
+        });
+
+        const [left, top] = nodePositions[step.node];
+        packet.style.left = `${left}%`;
+        packet.style.top = `${top}%`;
+      }
+
+      function schedule() {
+        clearInterval(timer);
+        if (!playing || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        timer = setInterval(() => {
+          setStep((current + 1) % steps.length);
+        }, 3600);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;");
+      }
+    </script>
+  </body>
+</html>
