@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+data/lifecycle/*.jsonl
+data/lifecycle/*.csv
+data/lifecycle/*.sqlite
+data/lifecycle/*.sqlite3
+*.log
+.DS_Store

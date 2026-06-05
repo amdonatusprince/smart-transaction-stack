@@ -1,0 +1,46 @@
+{
+  "name": "smart-transaction-stack",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Live Solana smart transaction stack with Jito bundles, Yellowstone lifecycle tracking, and an AI retry agent.",
+  "bin": {
+    "txstack": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli/index.ts",
+    "doctor": "tsx src/cli/index.ts doctor",
+    "dashboard": "tsx src/cli/index.ts dashboard",
+    "export": "tsx src/cli/index.ts export",
+    "test": "vitest run",
+    "test:live:devnet": "LIVE_DEVNET=1 vitest run test/live-devnet.test.ts",
+    "test:live:mainnet": "LIVE_MAINNET=1 vitest run test/live-mainnet.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "@triton-one/yellowstone-grpc": "^5.0.8",
+    "better-sqlite3": "^12.10.0",
+    "bs58": "^6.0.0",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jito-ts": "^4.2.1",
+    "openai": "^5.12.2",
+    "pino": "^9.6.0",
+    "ws": "^8.21.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.9"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
