@@ -1,4 +1,10 @@
-import "dotenv/config";
+import { config as loadDotenv } from "dotenv";
+import { existsSync } from "node:fs";
+
+loadDotenv();
+if (existsSync(".env.local")) {
+  loadDotenv({ path: ".env.local", override: true });
+}
 import { z } from "zod";
 import type { NetworkName } from "../types/domain.js";
 
@@ -10,7 +16,7 @@ const envSchema = z.object({
   JITO_BLOCK_ENGINE_HTTP: z.string().url().default("https://frankfurt.mainnet.block-engine.jito.wtf"),
   JITO_BLOCK_ENGINE_GRPC: z.string().min(1).default("frankfurt.mainnet.block-engine.jito.wtf"),
   JITO_TIP_FLOOR_URL: z.string().url().default("https://bundles.jito.wtf/api/v1/bundles/tip_floor"),
-  PAYER_KEYPAIR_PATH: z.string().optional(),
+  PAYER_PRIVATE_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5.5"),
   DB_PATH: z.string().default("data/lifecycle/txstack.sqlite"),
@@ -39,7 +45,7 @@ export function loadConfig() {
     jitoHttpUrl: trimTrailingSlash(parsed.JITO_BLOCK_ENGINE_HTTP),
     jitoGrpcUrl: normalizeGrpcHost(parsed.JITO_BLOCK_ENGINE_GRPC),
     tipFloorUrl: parsed.JITO_TIP_FLOOR_URL,
-    payerKeypairPath: parsed.PAYER_KEYPAIR_PATH,
+    payerPrivateKey: parsed.PAYER_PRIVATE_KEY,
     openAiApiKey: parsed.OPENAI_API_KEY,
     openAiModel: parsed.OPENAI_MODEL,
     dbPath: parsed.DB_PATH,

@@ -123,7 +123,7 @@ Important values:
 | `JITO_BLOCK_ENGINE_HTTP` | Jito JSON-RPC base URL. |
 | `JITO_BLOCK_ENGINE_GRPC` | Jito searcher client host for leader queries. |
 | `JITO_TIP_FLOOR_URL` | Live Jito tip-floor endpoint. |
-| `PAYER_KEYPAIR_PATH` | Local payer keypair for live bundle submissions. |
+| `PAYER_PRIVATE_KEY` | Payer secret for live bundle submissions (base58, JSON byte array, or keypair file path). |
 | `OPENAI_API_KEY` | Enables the AI retry agent. |
 | `MIN_TIP_LAMPORTS` | Lower bound for dynamic tip decisions. |
 | `MAX_TIP_LAMPORTS` | Upper bound for dynamic tip decisions. |

@@ -40,7 +40,7 @@ Edit `.env`:
 - `SOLANA_RPC_URL`
 - `YELLOWSTONE_ENDPOINT`
 - `YELLOWSTONE_X_TOKEN`
-- `PAYER_KEYPAIR_PATH`
+- `PAYER_PRIVATE_KEY` (base58 secret, JSON byte array, or keypair file path)
 - `OPENAI_API_KEY`
 
 The payer must hold enough SOL for real mainnet transaction fees and small Jito tips.

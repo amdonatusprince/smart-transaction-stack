@@ -4,7 +4,7 @@ import bs58 from "bs58";
 
 export function loadKeypair(pathOrSecret?: string): Keypair {
   if (!pathOrSecret) {
-    throw new Error("PAYER_KEYPAIR_PATH is required for live bundle submission");
+    throw new Error("PAYER_PRIVATE_KEY is required for live bundle submission");
   }
 
   const trimmed = pathOrSecret.trim();

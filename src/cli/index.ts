@@ -22,7 +22,7 @@ program.command("doctor")
     const config = loadConfig();
     const services = createServices(config);
     try {
-      const payer = config.payerKeypairPath ? loadKeypair(config.payerKeypairPath) : undefined;
+      const payer = config.payerPrivateKey ? loadKeypair(config.payerPrivateKey) : undefined;
       const result = await doctor(config, services, payer);
       console.log(JSON.stringify(result, null, 2));
     } finally {
@@ -39,7 +39,7 @@ program.command("run")
     requireLive(options.live);
     const config = loadConfig();
     const services = createServices(config);
-    const payer = loadKeypair(config.payerKeypairPath);
+    const payer = loadKeypair(config.payerPrivateKey);
     const count = options.count ?? config.defaultBundleCount;
     const faults = parseFaults(options.faults);
 
@@ -72,7 +72,7 @@ program.command("fault:blockhash-expiry")
     requireLive(options.live);
     const config = loadConfig();
     const services = createServices(config);
-    const payer = loadKeypair(config.payerKeypairPath);
+    const payer = loadKeypair(config.payerPrivateKey);
     try {
       const result = await runBlockhashExpiryFault(config, services, payer);
       console.log(JSON.stringify(result, null, 2));

@@ -71,7 +71,7 @@ export async function doctor(config: AppConfig, services: Services, payer?: Keyp
       : {
           publicKey: null,
           balanceLamports: null,
-          warning: "PAYER_KEYPAIR_PATH not configured"
+          warning: "PAYER_PRIVATE_KEY not configured"
         },
     openAi: {
       configured: Boolean(config.openAiApiKey),
