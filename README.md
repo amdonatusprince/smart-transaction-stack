@@ -1,5 +1,7 @@
 # Snapsis
 
+**Live dashboard:** [https://smart-transaction-stack-production.up.railway.app](https://smart-transaction-stack-production.up.railway.app)
+
 ## How to Build an AI-Powered Smart Transaction Stack with Yellowstone gRPC and Jito Bundles
 
 Sending a Solana transaction is not the end of the story. A production system still needs to know when the transaction entered a leader window, whether a Jito bundle was accepted, when Yellowstone observed the signature, how quickly the slot moved from processed to confirmed, and what to do when the blockhash or auction conditions turn against the operator.
