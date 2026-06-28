@@ -43,7 +43,10 @@
             <p class="eyebrow">Execution Pipeline</p>
             <h1 id="pipeline-title">Live transaction trace</h1>
           </div>
-          <p class="mono subtle">ID: <span id="active-id">-</span></p>
+          <div class="pipeline-head-right">
+            <button id="follow-toggle" type="button" class="follow-btn live" title="Auto-following newest bundle. Click to pin.">LIVE</button>
+            <p class="mono subtle">ID: <span id="active-id">-</span></p>
+          </div>
         </div>
         <ol class="pipeline" aria-label="Active transaction lifecycle">
           <li data-stage="created"><span></span><strong>Created</strong><small id="stage-created">-</small></li>

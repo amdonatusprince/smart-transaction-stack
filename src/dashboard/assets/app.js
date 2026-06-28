@@ -7,12 +7,14 @@ const state = {
   snapshot: null,
   selectedEvents: [],
   page: 0,
-  expandedEvents: new Set()
+  expandedEvents: new Set(),
+  autoFollow: !new URLSearchParams(window.location.search).get("tx")
 };
 
 const els = Object.fromEntries(
   [
     "active-id",
+    "follow-toggle",
     "active-signature",
     "active-target",
     "active-tip",
@@ -61,6 +63,16 @@ for (const stage of STAGES) {
 els.refresh.addEventListener("click", () => void load({ manual: true }));
 els.pagePrev.addEventListener("click", () => changePage(-1));
 els.pageNext.addEventListener("click", () => changePage(1));
+els.followToggle.addEventListener("click", () => {
+  state.autoFollow = !state.autoFollow;
+  els.followToggle.textContent = state.autoFollow ? "LIVE" : "PINNED";
+  els.followToggle.classList.toggle("live", state.autoFollow);
+  els.followToggle.classList.toggle("pinned", !state.autoFollow);
+  if (state.autoFollow && state.snapshot) {
+    ensureSelection(state.snapshot);
+    void loadSelectedEvents().then(() => render(state.snapshot));
+  }
+});
 
 await load();
 setInterval(() => void load(), 2_000);
@@ -129,6 +141,7 @@ function render(snapshot) {
   renderDecisions(rows);
   renderRecovery(rows);
   renderCharts(summary, rows);
+  syncFollowButton();
   els.empty.hidden = rows.length !== 0;
   els.lastRefresh.textContent = `refreshed ${formatTime(snapshot.generatedAt)}`;
 }
@@ -205,6 +218,8 @@ function renderRows(rows) {
   els.rows.querySelectorAll("button[data-id]").forEach((button) => {
     button.addEventListener("click", async () => {
       state.selectedId = button.getAttribute("data-id");
+      state.autoFollow = false;
+      syncFollowButton();
       state.expandedEvents = new Set();
       const url = new URL(window.location.href);
       url.searchParams.set("tx", state.selectedId);
@@ -322,8 +337,25 @@ function renderCharts(summary, rows) {
 }
 
 function ensureSelection(snapshot) {
-  if (snapshot.rows.some((row) => row.id === state.selectedId)) return;
-  state.selectedId = snapshot.active?.id ?? snapshot.rows[0]?.id ?? null;
+  const { rows, active } = snapshot;
+  if (!state.autoFollow) {
+    // User pinned a specific row — keep it while it still exists
+    if (rows.some((row) => row.id === state.selectedId)) return;
+    // Pinned row vanished; fall back to auto-follow
+    state.autoFollow = true;
+    syncFollowButton();
+  }
+  // Auto-follow: prefer the first in-flight bundle so the pipeline animates in real time
+  const inFlight = rows.find((r) => r.status === "created" || r.status === "submitted" || r.status === "processed");
+  const best = inFlight ?? active ?? rows[0] ?? null;
+  state.selectedId = best?.id ?? null;
+}
+
+function syncFollowButton() {
+  if (!els.followToggle) return;
+  els.followToggle.textContent = state.autoFollow ? "LIVE" : "PINNED";
+  els.followToggle.classList.toggle("live", state.autoFollow);
+  els.followToggle.classList.toggle("pinned", !state.autoFollow);
 }
 
 function selectedRow(rows, active) {

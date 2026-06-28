@@ -230,6 +230,42 @@ dd {
   grid-area: pipeline;
 }
 
+.pipeline-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.follow-btn {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: background 0.15s, color 0.15s;
+}
+
+.follow-btn.live {
+  background: rgba(138, 255, 61, 0.15);
+  border-color: var(--primary);
+  color: var(--primary);
+  animation: pulse-live 2s infinite;
+}
+
+.follow-btn.pinned {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+@keyframes pulse-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
 .slot-panel {
   grid-area: slots;
 }

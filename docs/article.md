@@ -1,26 +1,26 @@
 # How to Build an AI-Powered Smart Transaction Stack with Yellowstone gRPC and Jito Bundles
 
-Getting a transaction onto Solana is easy. Proving that it landed the way you intended — through the right leader window, with an evidence-backed tip, and tracked across every commitment stage — is the hard part that separates a demo from infrastructure. This document walks through exactly how Snapsis does that: how each service participates in execution, how lifecycle evidence is captured rather than mocked, and how a single constrained AI decision recovers a failed bundle.
+Getting a transaction onto Solana is easy. Proving it landed the way you intended is the hard part. This document covers how Snapsis does that: how each service fits in, how lifecycle evidence is captured rather than mocked, and how a single AI decision recovers a failed bundle.
 
 ## 1. Executive Summary
 
-Snapsis is a TypeScript/Node infrastructure prototype for submitting and observing Solana transactions through the same path a production searcher or latency-sensitive application would care about:
+Snapsis is a TypeScript/Node prototype for submitting and tracking Solana transactions along the same path a production searcher would use:
 
-1. Observe live Solana network state through Yellowstone gRPC.
+1. Read live network state from Yellowstone gRPC.
 2. Detect Jito-connected leader windows.
-3. Pull live Jito tip account and tip-floor data.
-4. Build a signed versioned transaction that contains a memo plus a Jito tip transfer.
-5. Submit the transaction as a Jito bundle, and dual-broadcast the same signed transaction over the public RPC so it lands even when a tiny memo bundle loses the Jito auction.
-6. Track the bundle and transaction from submission through processed, confirmed, and finalized lifecycle stages using Yellowstone streaming first, with RPC `getSignatureStatuses` as the reliable source of truth.
-7. Persist evidence in a local SQLite store.
-8. Export judge-readable JSONL and CSV logs.
-9. Use an OpenAI agent to make the retry decision for the required blockhash-expiry fault injection demo.
+3. Fetch live Jito tip account and tip-floor data.
+4. Build a signed versioned transaction containing a memo and a Jito tip transfer.
+5. Submit as a Jito bundle, and broadcast the same signed transaction over public RPC so it lands even when the memo bundle loses the auction.
+6. Track from submission through processed, confirmed, and finalized using Yellowstone streaming with RPC `getSignatureStatuses` as the authoritative source.
+7. Persist every stage and event in SQLite.
+8. Export JSONL and CSV logs for review.
+9. Call an OpenAI agent to make the retry decision when a blockhash-expiry fault fires.
 
-The stack intentionally avoids mock lifecycle data. The dashboard and exports stay empty until real submissions write evidence. Devnet is used only for live RPC tests that devnet can honestly support. Jito bundle acceptance is a mainnet path because the official Jito block engine surface exposes mainnet/testnet endpoints, not a devnet block engine.
+We do not generate mock lifecycle data. The dashboard stays empty until real submissions write evidence. Devnet is used only for RPC tests that devnet can honestly support. Jito bundle testing runs on mainnet because the official Jito block engine exposes mainnet/testnet endpoints, not a devnet engine.
 
 ## 2. Repository Map
 
-The implementation is organized around infrastructure boundaries rather than UI pages:
+The code is split along infrastructure boundaries, not UI pages:
 
 | Area | Path | Responsibility |
 | --- | --- | --- |
@@ -42,20 +42,18 @@ The implementation is organized around infrastructure boundaries rather than UI 
 
 ## 3. System Architecture
 
-At a high level, the stack is a live transaction operations loop. The CLI creates service clients from environment config, the orchestrator runs one or more bundle attempts, streaming infrastructure records lifecycle evidence, and the dashboard/export commands read the same persisted store.
+The CLI creates service clients from the environment config, the orchestrator runs bundle attempts, streaming infrastructure records the lifecycle, and the dashboard and export commands read from the same SQLite store.
 
 ![System architecture](../shots/system-architecture.png)
 
-### Architectural Style
+### Design choices
 
-This implementation follows a command-driven service orchestration style:
-
-- The CLI owns operator intent and spending guards.
-- Each infrastructure dependency has a small adapter.
-- The orchestrator composes adapters into a live transaction run.
-- The persistence layer is append-friendly and idempotent.
-- The dashboard is read-only and never creates evidence.
-- The AI agent is not a background chatbot. It is a constrained decision service called only when the runner has real failure evidence.
+- The CLI owns operator intent and the `--live` spending guard.
+- Each infrastructure dependency gets a small adapter with a clear boundary.
+- The orchestrator wires adapters together for a live transaction run.
+- The evidence store is append-friendly and idempotent.
+- The dashboard is read-only and never creates lifecycle records.
+- The AI agent is not a background process. It gets called once when the runner has real failure evidence and it returns one structured JSON decision.
 
 ## 4. Key Components
 
@@ -100,36 +98,13 @@ The Yellowstone endpoint normalizer accepts either `fra.grpc.solinfra.dev:443` o
 
 ### 4.3 Solana RPC Layer
 
-The RPC client is intentionally used for things RPC is good at:
-
-- Genesis hash and version checks.
-- Wallet balance checks.
-- Confirmed blockhash retrieval.
-- Transaction simulation.
-- Secondary verification and block-height reads.
-
-RPC polling alone is not treated as sufficient lifecycle confirmation. The landing path is tracked through Yellowstone subscriptions and Jito status APIs.
+RPC does the things it is good at: genesis hash checks, wallet balance reads, confirmed blockhash retrieval, transaction simulation, and block-height polling. We do not rely on RPC polling alone for lifecycle confirmation. The landing path runs through Yellowstone subscriptions and Jito status APIs, with RPC as the authoritative fallback.
 
 ### 4.4 Yellowstone gRPC Stream
 
-`YellowstoneClient` is the stream-based observability layer.
+`YellowstoneClient` handles the stream-based observability. It connects to the provider's gRPC endpoint, reads processed and confirmed slots for health checks, subscribes to transaction updates by signature, and emits lifecycle stage updates back to the store: `submitted`, `processed`, `confirmed`, `finalized`.
 
-It is responsible for:
-
-- Connecting to the provider's gRPC endpoint.
-- Reading processed and confirmed slots for health checks.
-- Subscribing to transaction and transaction-status updates by signature.
-- Subscribing to slot updates with commitment filtering.
-- Emitting lifecycle stage updates back to the store.
-
-The lifecycle tracker records:
-
-- `submitted`
-- `processed`
-- `confirmed`
-- `finalized`
-
-The stream is also used as an operational signal. If the submitted signature never appears before timeout, the stack classifies that as a stream or bundle failure rather than silently treating RPC absence as proof.
+The stream is also treated as an operational signal. If the submitted signature never shows up before the timeout, the stack classifies that as a stream or bundle failure rather than silently treating absence as success.
 
 ### 4.5 Jito Block Engine Layer
 
@@ -145,7 +120,7 @@ The Jito integration is split into two adapters:
    - `getNextScheduledLeader`
    - `waitForLeaderWindow`
 
-This split mirrors the reality of the external interfaces. Bundle status and submission are JSON-RPC calls. Leader scheduling is exposed through the Jito TS searcher client.
+The split reflects how the external interfaces actually work. Bundle status and submission go over JSON-RPC. Leader scheduling goes through the Jito TS searcher client.
 
 ### 4.6 Dynamic Tip Oracle
 
@@ -250,24 +225,13 @@ The normal execution flow is:
 
 ### Dual submission and RPC-confirmed landing
 
-A pure memo-plus-tip bundle is a low-value target, and on mainnet it routinely loses the Jito auction — the block engine reports the bundle id as `Invalid` and nothing lands. Snapsis treats the Jito bundle as the MEV-aware path but does not depend on winning the auction for evidence. The same signed transaction is also broadcast over the public RPC (`sendRawTransaction`, re-broadcast until confirmed), exactly the way a production sender maximizes landing probability.
+Memo bundles are low-value and routinely lose the Jito auction on mainnet. The block engine marks them `Invalid` and nothing lands. We treat the Jito bundle as the MEV path but do not depend on winning the auction. The same signed transaction also gets broadcast over public RPC and re-broadcast until confirmed, the way a production sender would maximize landing probability.
 
-Confirmation is layered: Yellowstone gRPC is subscribed first as the streaming source, and RPC `getSignatureStatuses` runs concurrently as the authoritative fallback. Because `markStage` is idempotent on `(submission_id, stage, slot)`, all three feeds — Yellowstone, RPC, and the Jito bundle status — can write the same lifecycle without conflict, and every event records which source observed it. The low-tip fault deliberately stays Jito-only so the fee-too-low failure remains observable.
+Confirmation tracking is layered: Yellowstone is subscribed first as the streaming source, and RPC `getSignatureStatuses` runs concurrently as the authoritative fallback. `markStage` is idempotent on `(submission_id, stage, slot)`, so Yellowstone, RPC, and the Jito bundle status can all write the same lifecycle record without conflict. Every event records which source observed it. The low-tip fault deliberately stays Jito-only so the fee-too-low failure is observable.
 
 ### Why this flow matters
 
-On Solana, the user-visible act of "sending a transaction" hides multiple timing domains:
-
-- blockhash lifetime
-- leader schedule
-- Jito auction and bundle handling
-- TPU ingestion
-- block production
-- vote propagation
-- commitment progression
-- explorer-visible finality
-
-This stack records those domains separately so the lifecycle log is operationally useful instead of being a single success/failure boolean.
+Sending a transaction on Solana touches multiple overlapping timing domains: blockhash lifetime, leader schedule, Jito auction, TPU ingestion, block production, vote propagation, commitment progression, and explorer-visible finality. Recording those domains separately is what makes the lifecycle log useful. A single success/failure boolean tells you nothing about where things went wrong or how long each stage actually took.
 
 ## 6. Lifecycle Tracking Model
 
@@ -332,27 +296,9 @@ The implementation supports:
 
 ## 8. AI Agent Responsibility
 
-The agent has one operational responsibility: decide what to do after the blockhash-expiry fault.
+The agent has one job: decide what to do after a failure.
 
-It does not:
-
-- sign transactions
-- directly call RPC
-- directly call Jito
-- access private keys
-- bypass tip limits
-- create lifecycle data
-- choose arbitrary tools
-
-It does:
-
-- read the failure evidence supplied by the runner
-- classify the reason
-- decide retry vs no retry
-- choose blockhash strategy
-- choose a retry tip inside safety rails
-- choose a small wait before retry if useful
-- provide a concise reasoning summary for the evidence log
+It does not sign transactions, call RPC, call Jito, touch private keys, bypass tip limits, create lifecycle data, or pick arbitrary tools. It reads the failure evidence the runner gives it, classifies the reason, decides retry or no retry, picks a blockhash strategy and a tip inside the configured safety rails, optionally waits a few slots, and writes a one-sentence reasoning summary to the evidence log.
 
 ![AI retry flow](../shots/ai-retry-flow.png)
 
