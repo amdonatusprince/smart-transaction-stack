@@ -141,7 +141,9 @@ export async function submitOneLive(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!broadcastViaRpc) {
-      services.store.markFailure(submission.id, classifyFailure(message), message);
+      // low-tip is the only Jito-only path; classify by known cause (fee too low).
+      const classification = faultMode === "low-tip" ? "fee_too_low" : classifyFailure(message);
+      services.store.markFailure(submission.id, classification, message);
       throw error;
     }
     services.store.markStage(submission.id, built.signatures[0], "submitted", leader.currentSlot, {
@@ -151,7 +153,7 @@ export async function submitOneLive(
   }
 
   if (!broadcastViaRpc) {
-    await trackJitoOnly(services, submission.id, built.signatures[0], bundleId!);
+    await trackJitoOnly(services, submission.id, built.signatures[0], bundleId!, faultMode);
     return services.store.listSubmissions(1)[0];
   }
 
@@ -345,13 +347,22 @@ async function confirmLanding(
   throw new Error(message);
 }
 
-/** Jito-only path used by the low-tip fault, where losing the auction is the expected outcome. */
+/**
+ * Jito-only path used by the low-tip fault, where losing the auction is the expected outcome.
+ * Jito never emits an explicit "fee too low" error — an underpriced bundle simply loses the
+ * auction and comes back Invalid / not landed. Because this path is only ever reached for the
+ * deliberate low-tip fault, the non-landing is classified as `fee_too_low` by known cause
+ * rather than by guessing from the generic bundle error text.
+ */
 async function trackJitoOnly(
   services: Services,
   submissionId: string,
   signature: string,
-  bundleId: string
+  bundleId: string,
+  faultMode: FaultMode = "low-tip"
 ) {
+  const classifyByCause = (message: string) =>
+    faultMode === "low-tip" ? "fee_too_low" : classifyFailure(message);
   try {
     const status = await pollJitoStatus(services.jito, bundleId, 60_000);
     const landedSlot = Number((status as { landed_slot?: number }).landed_slot);
@@ -361,12 +372,12 @@ async function trackJitoOnly(
       services.store.markStage(submissionId, signature, "finalized", landedSlot, { source: "jito-bundle", status });
       return;
     }
-    const message = `Jito bundle ${bundleId} did not land: ${JSON.stringify(status)}`;
-    services.store.markFailure(submissionId, classifyFailure(message), message);
+    const message = `Bundle ${bundleId} lost the Jito auction (tip too low to land): ${JSON.stringify(status)}`;
+    services.store.markFailure(submissionId, classifyByCause(message), message);
     throw new Error(message);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    services.store.markFailure(submissionId, classifyFailure(message), message);
+    services.store.markFailure(submissionId, classifyByCause(message), message);
     throw error;
   }
 }
@@ -417,9 +428,12 @@ async function agentAutonomousRetry(
 }
 
 /**
- * Continuous live simulation: bundles submitted in a loop, every 4th round injects a
- * blockhash-expiry fault so the agent runs the full detect→reason→refresh→recalculate→resubmit
- * loop. Regular failures also pass evidence to the agent for autonomous recovery decisions.
+ * Continuous live simulation. Most rounds are normal submissions so the dashboard shows
+ * movement immediately. Every 4th round rotates through a real fault so the failure mix is
+ * representative instead of all-blockhash:
+ *   - blockhash-expiry → full agent detect→reason→refresh→recalculate→resubmit loop
+ *   - low-tip          → underpriced bundle loses the Jito auction (fee_too_low)
+ *   - compute-exceeded → transaction blows its compute budget (compute_exceeded)
  * Watch http://localhost:8787 for live updates every 2 s.
  */
 export async function runSimulationLoop(
@@ -429,20 +443,29 @@ export async function runSimulationLoop(
   options: { maxAttempts: number; intervalMs: number }
 ) {
   const stats = { attempts: 0, finalized: 0, agentDecisions: 0, failed: 0 };
+  const faultRotation: FaultMode[] = ["blockhash-expiry", "low-tip", "compute-exceeded"];
+  let faultIndex = 0;
 
   while (stats.attempts < options.maxAttempts) {
     stats.attempts++;
-    // Normal submissions first so the dashboard shows movement immediately; the slow
-    // blockhash-expiry fault (which waits ~60s for the blockhash to age out) runs on
-    // every 4th round starting at round 4, exercising the full agent recovery loop.
-    const injectFault = stats.attempts % 4 === 0 && Boolean(services.agent);
+    // Every 4th round injects a fault, rotating across the three fault types.
+    const faultRound = stats.attempts % 4 === 0;
+    const fault = faultRound ? faultRotation[faultIndex % faultRotation.length] : "none";
+    const isAgentFault = fault === "blockhash-expiry" && Boolean(services.agent);
 
     try {
-      if (injectFault) {
-        process.stdout.write(`[${stats.attempts}/${options.maxAttempts}] ⚡ blockhash-expiry fault → agent loop\n`);
-        await runBlockhashExpiryFault(config, services, payer);
-        stats.agentDecisions++;
-        stats.finalized++;
+      if (faultRound) {
+        faultIndex++;
+        process.stdout.write(`[${stats.attempts}/${options.maxAttempts}] ⚡ ${fault} fault\n`);
+        if (isAgentFault) {
+          await runBlockhashExpiryFault(config, services, payer);
+          stats.agentDecisions++;
+          stats.finalized++;
+        } else {
+          // low-tip / compute-exceeded are expected to fail; that is the evidence.
+          await submitOneLive(config, services, payer, fault);
+          stats.finalized++;
+        }
       } else {
         process.stdout.write(`[${stats.attempts}/${options.maxAttempts}] → submitting bundle\n`);
         await submitOneLive(config, services, payer);
@@ -453,7 +476,7 @@ export async function runSimulationLoop(
       process.stdout.write(`[${stats.attempts}/${options.maxAttempts}] ✗ ${message.slice(0, 100)}\n`);
       stats.failed++;
 
-      if (services.agent && !injectFault) {
+      if (services.agent && !isAgentFault) {
         const failedRow = services.store.listSubmissions(1)[0];
         if (failedRow) {
           try {
