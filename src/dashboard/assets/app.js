@@ -1,5 +1,6 @@
 const STAGES = ["created", "submitted", "processed", "confirmed", "finalized"];
 const PAGE_SIZE = 6;
+const DECISIONS_PAGE_SIZE = 3;
 
 const state = {
   loading: true,
@@ -7,6 +8,7 @@ const state = {
   snapshot: null,
   selectedEvents: [],
   page: 0,
+  decisionsPage: 0,
   expandedEvents: new Set(),
   autoFollow: !new URLSearchParams(window.location.search).get("tx")
 };
@@ -21,6 +23,10 @@ const els = Object.fromEntries(
     "ai-decisions",
     "attempt-count",
     "connection-state",
+    "decisions-page-info",
+    "decisions-page-next",
+    "decisions-page-prev",
+    "decisions-pager",
     "empty",
     "error",
     "error-message",
@@ -63,6 +69,8 @@ for (const stage of STAGES) {
 els.refresh.addEventListener("click", () => void load({ manual: true }));
 els.pagePrev.addEventListener("click", () => changePage(-1));
 els.pageNext.addEventListener("click", () => changePage(1));
+els.decisionsPagePrev.addEventListener("click", () => changeDecisionsPage(-1));
+els.decisionsPageNext.addEventListener("click", () => changeDecisionsPage(1));
 els.followToggle.addEventListener("click", () => {
   state.autoFollow = !state.autoFollow;
   els.followToggle.textContent = state.autoFollow ? "LIVE" : "PINNED";
@@ -82,6 +90,14 @@ function changePage(delta) {
   const pageCount = Math.max(1, Math.ceil(state.snapshot.rows.length / PAGE_SIZE));
   state.page = Math.min(pageCount - 1, Math.max(0, state.page + delta));
   renderRows(state.snapshot.rows);
+}
+
+function changeDecisionsPage(delta) {
+  if (!state.snapshot) return;
+  const decisions = decisionRows(state.snapshot.rows);
+  const pageCount = Math.max(1, Math.ceil(decisions.length / DECISIONS_PAGE_SIZE));
+  state.decisionsPage = Math.min(pageCount - 1, Math.max(0, state.decisionsPage + delta));
+  renderDecisions(state.snapshot.rows);
 }
 
 async function load({ manual = false } = {}) {
@@ -316,10 +332,15 @@ function renderSlots(events, row, summary) {
 }
 
 function renderDecisions(rows) {
-  const decisions = rows.map((row) => ({ row, decision: parseDecision(row.agentDecisionJson) })).filter((item) => item.decision);
+  const decisions = decisionRows(rows);
+  const pageCount = Math.max(1, Math.ceil(decisions.length / DECISIONS_PAGE_SIZE));
+  if (state.decisionsPage > pageCount - 1) state.decisionsPage = pageCount - 1;
+  const start = state.decisionsPage * DECISIONS_PAGE_SIZE;
+  const pageDecisions = decisions.slice(start, start + DECISIONS_PAGE_SIZE);
+
   els.aiDecisions.innerHTML = decisions.length === 0
     ? `<p class="subtle">no decisions yet - agent fires on blockhash expiry evidence</p>`
-    : decisions.slice(0, 4).map(({ row, decision }) => `
+    : pageDecisions.map(({ row, decision }) => `
       <article class="decision-card">
         <strong>${escapeHtml(decision.retry_action.replace("_", " "))} · ${lamportsToSol(decision.tip_lamports)} SOL</strong>
         <span>${escapeHtml(decision.failure_classification.replace(/_/g, " "))} · confidence ${Math.round((decision.confidence ?? 0) * 100)}%</span>
@@ -327,6 +348,17 @@ function renderDecisions(rows) {
         <small>${short(row.signature, 18)}</small>
       </article>
     `).join("");
+
+  els.decisionsPager.hidden = decisions.length <= DECISIONS_PAGE_SIZE;
+  els.decisionsPageInfo.textContent = `page ${state.decisionsPage + 1} / ${pageCount} · ${decisions.length} total`;
+  els.decisionsPagePrev.disabled = state.decisionsPage === 0;
+  els.decisionsPageNext.disabled = state.decisionsPage >= pageCount - 1;
+}
+
+function decisionRows(rows) {
+  return rows
+    .map((row) => ({ row, decision: parseDecision(row.agentDecisionJson) }))
+    .filter((item) => item.decision);
 }
 
 function renderRecovery(rows) {

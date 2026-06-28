@@ -615,7 +615,8 @@ dd {
   padding: 10px 12px;
 }
 
-.pager #page-info {
+.pager #page-info,
+.pager #decisions-page-info {
   margin-right: auto;
 }
 
