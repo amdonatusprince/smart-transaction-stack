@@ -432,7 +432,10 @@ export async function runSimulationLoop(
 
   while (stats.attempts < options.maxAttempts) {
     stats.attempts++;
-    const injectFault = stats.attempts % 4 === 1 && Boolean(services.agent);
+    // Normal submissions first so the dashboard shows movement immediately; the slow
+    // blockhash-expiry fault (which waits ~60s for the blockhash to age out) runs on
+    // every 4th round starting at round 4, exercising the full agent recovery loop.
+    const injectFault = stats.attempts % 4 === 0 && Boolean(services.agent);
 
     try {
       if (injectFault) {
