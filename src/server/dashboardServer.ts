@@ -9,6 +9,10 @@ export async function startDashboardServer(dbPath: string, port: number) {
   const docsRoot = resolve("docs");
   const shotsRoot = resolve("shots");
 
+  app.get("/health", (_req, res) => {
+    res.json({ ok: true });
+  });
+
   app.get("/api/summary", (_req, res) => {
     const store = new LifecycleStore(dbPath);
     try {
