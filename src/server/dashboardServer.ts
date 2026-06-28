@@ -60,7 +60,7 @@ export async function startDashboardServer(dbPath: string, port: number) {
   app.use("/assets", express.static(resolve(root, "assets")));
   app.use("/shots", express.static(shotsRoot));
 
-  app.listen(port, () => {
-    console.log(`Dashboard listening on http://localhost:${port}`);
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`Dashboard listening on http://0.0.0.0:${port}`);
   });
 }

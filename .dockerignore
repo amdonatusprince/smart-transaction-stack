@@ -1,0 +1,11 @@
+node_modules
+.git
+.env
+.env.local
+data/lifecycle/*.sqlite
+data/lifecycle/*.jsonl
+data/lifecycle/*.csv
+dist
+coverage
+*.log
+.DS_Store

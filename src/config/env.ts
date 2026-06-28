@@ -70,7 +70,8 @@ export function loadConfig() {
 export function loadLocalArtifactConfig() {
   return {
     dbPath: process.env.DB_PATH ?? "data/lifecycle/txstack.sqlite",
-    dashboardPort: parsePositiveInt(process.env.DASHBOARD_PORT, 8787)
+    // Railway injects PORT; prefer it over DASHBOARD_PORT for hosted deploys.
+    dashboardPort: parsePositiveInt(process.env.PORT ?? process.env.DASHBOARD_PORT, 8787)
   };
 }
 
