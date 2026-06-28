@@ -161,9 +161,6 @@ function renderSummary(summary, rows) {
 }
 
 function renderPipeline(row) {
-  document.querySelectorAll(".pipeline li").forEach((item) => {
-    item.classList.remove("complete", "current", "failed");
-  });
   for (const stage of STAGES) {
     els[camel(`stage-${stage}`)].textContent = row ? stageTime(row, stage) : "-";
   }
@@ -172,14 +169,35 @@ function renderPipeline(row) {
   els.activeTip.textContent = row ? `tip ${lamportsToSol(row.tipLamports)} SOL` : "tip -";
   els.activeTarget.textContent = row ? `target leader ${dash(row.leaderSlot)}` : "leader -";
 
-  if (!row) return;
-  const currentIndex = row.status === "failed" ? STAGES.indexOf(lastKnownStage(row)) : Math.max(0, STAGES.indexOf(lastKnownStage(row)));
+  const failed = row?.status === "failed";
+  const currentIndex = row ? Math.max(0, STAGES.indexOf(lastKnownStage(row))) : -1;
+
   STAGES.forEach((stage, index) => {
     const el = document.querySelector(`.pipeline li[data-stage="${stage}"]`);
     if (!el) return;
-    if (row.status === "failed" && index === currentIndex) el.classList.add("failed");
-    else if (index < currentIndex || row.status === "finalized") el.classList.add("complete");
-    else if (index === currentIndex) el.classList.add("current");
+
+    // Compute the desired state for this stage, then only mutate the DOM when it
+    // actually changes. Re-applying the same class every poll would restart the
+    // CSS animations and make the trace flicker instead of progress smoothly.
+    let desired = "";
+    if (!row) desired = "";
+    else if (failed && index === currentIndex) desired = "failed";
+    else if (index < currentIndex || (row.status === "finalized" && index <= currentIndex)) desired = "complete";
+    else if (index === currentIndex) desired = failed ? "failed" : "current";
+
+    if (el.dataset.state === desired) return;
+
+    el.classList.remove("complete", "current", "failed", "just-advanced");
+    if (desired) {
+      el.classList.add(desired);
+      // Brief one-shot highlight when a stage newly lights up, for the "advancing" feel.
+      if (desired === "complete" || desired === "current") {
+        el.classList.add("just-advanced");
+        const node = el;
+        setTimeout(() => node.classList.remove("just-advanced"), 700);
+      }
+    }
+    el.dataset.state = desired;
   });
 }
 
