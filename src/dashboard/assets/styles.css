@@ -182,11 +182,12 @@ dd {
 
 .dashboard-shell {
   display: grid;
-  grid-template-columns: minmax(220px, 0.9fr) minmax(420px, 2.3fr) minmax(220px, 0.95fr);
+  grid-template-columns: minmax(200px, 0.9fr) minmax(400px, 2.3fr) minmax(200px, 0.95fr);
   grid-template-areas:
     "probability pipeline slots"
     "decisions orchestration trace"
-    "recovery metrics trace";
+    "recovery orchestration trace"
+    "mlatency mtip mnetload";
   gap: 8px;
   max-width: 1480px;
   margin: 0 auto;
@@ -250,29 +251,21 @@ dd {
 }
 
 .metric-panel {
-  min-height: 142px;
-  padding: 14px;
+  min-height: 110px;
+  padding: 12px 14px;
 }
 
-.dashboard-shell > .metric-panel:nth-last-child(3) {
-  grid-column: 2;
-}
-
-.dashboard-shell > .metric-panel:nth-last-child(2) {
-  grid-column: 2;
-}
-
-.network-load {
-  grid-column: 2;
-}
+#metric-latency { grid-area: mlatency; }
+#metric-tip     { grid-area: mtip; }
+#metric-netload { grid-area: mnetload; }
 
 .probability-ring {
   display: grid;
   place-items: center;
-  width: 156px;
-  height: 156px;
-  margin: 20px auto 16px;
-  border: 12px solid var(--primary-soft);
+  width: 136px;
+  height: 136px;
+  margin: 12px auto 12px;
+  border: 10px solid var(--primary-soft);
   border-top-color: var(--primary);
   border-right-color: var(--cyan);
   border-radius: 50%;
@@ -294,23 +287,13 @@ dd {
   text-transform: uppercase;
 }
 
-.signal-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
-  padding: 0 12px 14px;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10px;
-}
 
 .pipeline {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0;
   margin: 0;
-  padding: 26px 20px;
+  padding: 14px 16px;
   list-style: none;
 }
 
@@ -388,10 +371,11 @@ dd {
 .active-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 10px;
   border-top: 1px solid var(--border);
-  padding: 10px 14px;
+  padding: 8px 12px;
   color: var(--muted);
+  font-size: 12px;
 }
 
 .slot-feed,
@@ -414,20 +398,6 @@ dd {
   color: var(--foreground);
 }
 
-.leader-card {
-  display: grid;
-  gap: 5px;
-  margin: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: rgba(138, 255, 61, 0.06);
-  padding: 12px;
-}
-
-.leader-card strong {
-  font-family: var(--mono);
-  font-size: 18px;
-}
 
 .decision-card,
 .trace-event {
@@ -897,8 +867,8 @@ tr.selected td {
 .report-content h1 {
   margin-bottom: 18px;
   color: var(--primary);
-  font-size: clamp(34px, 6vw, 64px);
-  line-height: 0.98;
+  font-size: clamp(22px, 3vw, 38px);
+  line-height: 1.1;
 }
 
 .report-content h2 {
@@ -1023,14 +993,9 @@ tr.selected td {
       "probability slots"
       "orchestration orchestration"
       "trace trace"
-      "decisions recovery";
-  }
-
-  .metric-panel,
-  .network-load,
-  .dashboard-shell > .metric-panel:nth-last-child(2),
-  .dashboard-shell > .metric-panel:nth-last-child(3) {
-    grid-column: auto;
+      "decisions recovery"
+      "mlatency mtip"
+      "mnetload mnetload";
   }
 }
 
@@ -1063,7 +1028,10 @@ tr.selected td {
       "orchestration"
       "trace"
       "decisions"
-      "recovery";
+      "recovery"
+      "mlatency"
+      "mtip"
+      "mnetload";
   }
 
   .pipeline {

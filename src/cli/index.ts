@@ -6,7 +6,7 @@ import { loadConfig, loadLocalArtifactConfig } from "../config/env.js";
 import { LifecycleStore } from "../db/store.js";
 import { loadKeypair } from "../solana/keypair.js";
 import type { FaultMode } from "../types/domain.js";
-import { createServices, doctor, runBlockhashExpiryFault, submitOneLive } from "./workflows.js";
+import { createServices, doctor, runBlockhashExpiryFault, submitOneLive, runSimulationLoop } from "./workflows.js";
 import { startDashboardServer } from "../server/dashboardServer.js";
 
 const program = new Command();
@@ -84,6 +84,28 @@ program.command("fault:blockhash-expiry")
     const payer = loadKeypair(config.payerPrivateKey);
     try {
       const result = await runBlockhashExpiryFault(config, services, payer);
+      console.log(JSON.stringify(result, null, 2));
+    } finally {
+      services.store.close();
+    }
+  });
+
+program.command("simulate")
+  .description("Continuously submit live bundles with autonomous AI retry decisions. Run alongside the dashboard to watch live evidence accumulate.")
+  .option("--count <number>", "total simulation rounds (default 12)", parseInt)
+  .option("--interval <ms>", "milliseconds between attempts (default 2000)", parseInt)
+  .option("--live", "required guard for real mainnet submission")
+  .action(async (options: { count?: number; interval?: number; live?: boolean }) => {
+    requireLive(options.live);
+    const config = loadConfig();
+    const services = createServices(config);
+    const payer = loadKeypair(config.payerPrivateKey);
+    const count = options.count ?? 12;
+    const intervalMs = options.interval ?? 2000;
+    console.log(`Snapsis simulate: ${count} rounds, ${intervalMs}ms interval`);
+    console.log("Watch the dashboard at http://localhost:8787 for live updates.\n");
+    try {
+      const result = await runSimulationLoop(config, services, payer, { maxAttempts: count, intervalMs });
       console.log(JSON.stringify(result, null, 2));
     } finally {
       services.store.close();

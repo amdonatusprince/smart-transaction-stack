@@ -35,11 +35,6 @@
           <span id="landing-probability">50.0%</span>
           <small id="landing-label">awaiting evidence</small>
         </div>
-        <div class="signal-row">
-          <span>tip vs floor</span>
-          <span>leader window</span>
-          <span>stream health</span>
-        </div>
       </section>
 
       <section class="panel pipeline-panel" aria-labelledby="pipeline-title">
@@ -70,11 +65,6 @@
           <span id="slot-status" class="mini-badge">store</span>
         </div>
         <div id="slot-feed" class="slot-feed" aria-live="polite"></div>
-        <div class="leader-card">
-          <p class="eyebrow">Leader Schedule</p>
-          <strong id="leader-slot">-</strong>
-          <span id="leader-identity">awaiting leader evidence</span>
-        </div>
       </aside>
 
       <section class="panel decisions-panel" aria-labelledby="decisions-title">
@@ -145,19 +135,19 @@
         <div id="recovery-content" class="recovery-content"></div>
       </section>
 
-      <section class="panel metric-panel">
+      <section id="metric-latency" class="panel metric-panel">
         <p class="eyebrow">Conf. Latency</p>
         <strong id="latency-median">-</strong>
         <div class="bar-strip" id="latency-bars" aria-hidden="true"></div>
       </section>
 
-      <section class="panel metric-panel">
+      <section id="metric-tip" class="panel metric-panel">
         <p class="eyebrow">Tip Vs Success</p>
         <strong id="tip-range">-</strong>
         <div class="sparkline" id="tip-points" aria-hidden="true"></div>
       </section>
 
-      <section class="panel metric-panel network-load">
+      <section id="metric-netload" class="panel metric-panel">
         <p class="eyebrow">Network Load</p>
         <strong id="network-load">0%</strong>
         <span id="network-load-copy">awaiting run</span>

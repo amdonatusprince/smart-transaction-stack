@@ -371,6 +371,113 @@ async function trackJitoOnly(
   }
 }
 
+/**
+ * Autonomous agent retry for any failed submission.
+ * The agent receives full live evidence, classifies the failure, decides whether to retry,
+ * and if so returns new tip_lamports and blockhash_strategy. submitOneLive is then called
+ * with the agent's tip so the retry is fully autonomous — no hardcoded retry logic.
+ */
+async function agentAutonomousRetry(
+  config: AppConfig,
+  services: Services,
+  payer: Keypair,
+  failedRow: BundleSubmission & Record<string, unknown>,
+  errorMessage: string
+) {
+  if (!services.agent) throw new Error("Agent not configured");
+
+  const freshLeader = await services.leader.getNextScheduledLeader();
+  const freshTipQuote = await services.tips.quote(freshLeader.slotsUntilLeader);
+  const currentBlockHeight = await services.connection.getBlockHeight("confirmed");
+
+  const evidence: FailureEvidence = {
+    submissionId: String(failedRow.id),
+    signature: String(failedRow.signature),
+    bundleId: (failedRow.bundleId as string | null) ?? null,
+    faultMode: failedRow.faultMode as FaultMode,
+    errorMessage,
+    currentSlot: freshLeader.currentSlot,
+    leaderWindow: freshLeader,
+    tipQuote: freshTipQuote,
+    currentBlockHeight
+  };
+
+  const decision = await services.agent.decide(evidence);
+  services.store.saveAgentDecision(String(failedRow.id), safeJson(decision));
+
+  if (decision.retry_action !== "retry") {
+    return { retried: false as const, decision };
+  }
+  if (decision.wait_slots > 0) {
+    await sleep(decision.wait_slots * 450);
+  }
+  // submitOneLive fetches a fresh confirmed blockhash internally — agent's strategy honoured
+  await submitOneLive(config, services, payer, "none", decision.tip_lamports);
+  return { retried: true as const, decision };
+}
+
+/**
+ * Continuous live simulation: bundles submitted in a loop, every 4th round injects a
+ * blockhash-expiry fault so the agent runs the full detect→reason→refresh→recalculate→resubmit
+ * loop. Regular failures also pass evidence to the agent for autonomous recovery decisions.
+ * Watch http://localhost:8787 for live updates every 2 s.
+ */
+export async function runSimulationLoop(
+  config: AppConfig,
+  services: Services,
+  payer: Keypair,
+  options: { maxAttempts: number; intervalMs: number }
+) {
+  const stats = { attempts: 0, finalized: 0, agentDecisions: 0, failed: 0 };
+
+  while (stats.attempts < options.maxAttempts) {
+    stats.attempts++;
+    const injectFault = stats.attempts % 4 === 1 && Boolean(services.agent);
+
+    try {
+      if (injectFault) {
+        process.stdout.write(`[${stats.attempts}/${options.maxAttempts}] ⚡ blockhash-expiry fault → agent loop\n`);
+        await runBlockhashExpiryFault(config, services, payer);
+        stats.agentDecisions++;
+        stats.finalized++;
+      } else {
+        process.stdout.write(`[${stats.attempts}/${options.maxAttempts}] → submitting bundle\n`);
+        await submitOneLive(config, services, payer);
+        stats.finalized++;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stdout.write(`[${stats.attempts}/${options.maxAttempts}] ✗ ${message.slice(0, 100)}\n`);
+      stats.failed++;
+
+      if (services.agent && !injectFault) {
+        const failedRow = services.store.listSubmissions(1)[0];
+        if (failedRow) {
+          try {
+            process.stdout.write(`[${stats.attempts}/${options.maxAttempts}] 🤖 agent evaluating failure...\n`);
+            const result = await agentAutonomousRetry(config, services, payer, failedRow, message);
+            stats.agentDecisions++;
+            if (result.retried) {
+              stats.finalized++;
+              process.stdout.write(`   ↩ retry: ${result.decision.reasoning_summary}\n`);
+            } else {
+              process.stdout.write(`   — declined: ${result.decision.reasoning_summary}\n`);
+            }
+          } catch {
+            process.stdout.write(`   agent retry also failed\n`);
+          }
+        }
+      }
+    }
+
+    if (stats.attempts < options.maxAttempts) {
+      await sleep(options.intervalMs);
+    }
+  }
+
+  return { ...stats, summary: services.store.summary() };
+}
+
 async function pollJitoStatus(jito: JitoJsonRpcClient, bundleId: string, timeoutMs: number) {
   const deadline = Date.now() + timeoutMs;
   let lastStatus: unknown = null;

@@ -27,8 +27,6 @@ const els = Object.fromEntries(
     "last-refresh",
     "latency-bars",
     "latency-median",
-    "leader-identity",
-    "leader-slot",
     "network-leader",
     "network-load",
     "network-load-copy",
@@ -282,8 +280,6 @@ function renderSlots(events, row, summary) {
       </div>
     `).join("");
   els.slotStatus.textContent = events.length > 0 ? "streamed" : "store";
-  els.leaderSlot.textContent = row?.leaderSlot ?? summary.latestSlot ?? "-";
-  els.leaderIdentity.textContent = row?.leaderIdentity ? short(row.leaderIdentity, 22) : "awaiting leader evidence";
 }
 
 function renderDecisions(rows) {

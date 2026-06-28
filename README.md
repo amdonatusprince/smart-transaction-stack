@@ -128,6 +128,27 @@ data/lifecycle/lifecycle-<timestamp>.csv
 
 The command intentionally requires `--live`. Without that flag, Snapsis refuses to submit bundles.
 
+## Live Dashboard Demo
+
+The dashboard is **read-only** — it polls SQLite every 2 seconds and shows whatever evidence the CLI has written. No transactions are submitted automatically. To see live movement, run the CLI in a separate terminal while the dashboard is open.
+
+**Terminal 1 — dashboard:**
+```bash
+pnpm exec tsx src/cli/index.ts dashboard
+```
+
+**Terminal 2 — continuous agent-driven simulation:**
+```bash
+pnpm exec tsx src/cli/index.ts simulate --count 16 --interval 2000 --live
+```
+
+The `simulate` command submits bundles in a loop, injecting a real blockhash-expiry fault on every 4th round so the agent runs the full detect → reason → refresh → recalculate → resubmit loop. All failures from normal rounds also pass evidence to the agent for autonomous recovery decisions. The dashboard updates as each attempt writes its staged evidence.
+
+For a single controlled run matching the bounty minimum (10 submissions, injected faults):
+```bash
+pnpm exec tsx src/cli/index.ts run --count 10 --faults blockhash-expiry,compute-exceeded --live
+```
+
 ## How The Transaction Path Works
 
 1. Snapsis reads current network state from Solana RPC, Yellowstone, and Jito.
@@ -163,19 +184,23 @@ The runner validates the result with Zod, enforces tip rails, requires `retry` p
 
 ### What does the delta between `processed_at` and `confirmed_at` tell you about network health at the time of submission?
 
-The `processed_at -> confirmed_at` delta measures how quickly a transaction observed in a processed slot gained enough cluster vote confidence to become confirmed. A short delta usually indicates healthy block propagation, normal validator voting, and a clean landing window. A long delta can point to congestion, propagation lag, slow vote lockout progress, fork uncertainty, or a weaker leader window.
+In our mainnet evidence run every finalized transaction recorded a processed_at → confirmed_at delta of 0–1 ms, and the processed_slot equalled the confirmed_slot on every row. That specific number tells us two things.
 
-This signal is more useful than a landed/not-landed boolean because a transaction can land and still reveal poor network conditions if confirmation lags after processing.
+First, the network was healthy when we submitted. Solana needs roughly two-thirds of stake weight to vote on a slot before it crosses the confirmed threshold. A delta near zero means validators were voting and propagating quickly; the block had already gathered sufficient votes before our 2-second RPC poll even noticed it had landed. A wider delta — say 400–800 ms or several slots of separation — would indicate vote lag, high skip rates, or propagation congestion at that moment.
+
+Second, the 0–1 ms figure is a polling artifact. Our RPC loop calls `getSignatureStatuses` every 2 seconds and that method returns the highest commitment the transaction has already reached. By the time we first see the transaction it is already confirmed, so both timestamps collapse into the same poll cycle. A Yellowstone subscription fires per slot and would have shown the actual gap. For production work the two-source design — Yellowstone for sub-slot resolution, RPC as the authoritative source — is the right pattern.
 
 ### Why should you never use finalized commitment when fetching a blockhash for a time-sensitive transaction?
 
-Finalized blockhashes are older than confirmed blockhashes. For time-sensitive Jito bundles, that age burns part of the transaction's valid blockhash lifetime before the bundle is signed, sent, auctioned, and executed. Snapsis fetches blockhashes at `confirmed` commitment to balance recency with reasonable fork safety.
+A finalized blockhash is older than a confirmed one by definition. Finalization requires the slot containing the blockhash to be deeply embedded in the chain — typically 31 or more confirmed blocks beyond it — which means the blockhash may already be a minute or more old by the time you use it. That age eats into the 150-slot (~60-second) validity window before the bundle is even signed, sent through a searcher node, accepted by the block engine, auctioned, and included by the leader.
 
-The blockhash-expiry fault path demonstrates the consequence directly: once the current block height moves past the transaction's last valid block height, the bundle cannot land without rebuilding with a fresh blockhash.
+Snapsis fetches blockhashes at `confirmed` commitment. The blockhash-expiry fault path demonstrates the consequence directly: the test intentionally waits for the current block height to pass the transaction's last valid block height, then submits. The bundle arrives at the block engine with an already-expired blockhash and is dropped. The agent then classifies the failure as `expired_blockhash`, chooses `refresh_confirmed` as the retry strategy, and the rebuilt transaction finalizes successfully. Using `finalized` for routine submissions would produce that same failure spontaneously under load.
 
 ### What happens to your bundle if the Jito leader skips their slot?
 
-A Jito bundle is targeted at leader execution, not guaranteed execution across arbitrary future slots. If the intended leader skips or the bundle misses the viable window, the bundle may remain pending briefly, become failed or invalid, or never produce Yellowstone lifecycle evidence. The correct response is to watch both Jito bundle status and Yellowstone streams, refresh the blockhash when validity is at risk, recalculate the tip from current data, and retry only when the evidence supports it.
+In our mainnet runs the block engine consistently returned `Invalid` status for the small memo-plus-tip bundles, meaning they lost the auction rather than landing through the Jito path. That is the practical equivalent of a skipped or missed leader window for low-value bundles.
+
+The correct response is dual-submission: send the Jito bundle for the MEV path and simultaneously broadcast the same signed transaction over RPC so it lands regardless of auction outcome. Snapsis does this for every non-fault submission. Jito bundle status and Yellowstone are watched concurrently; whichever source first observes the signature at a given commitment level writes that stage to the database. If neither source produces evidence before the transaction's last valid block height is crossed, the blockhash is treated as expired and the agent re-evaluates. Every lifecycle event records the source that observed it so the distinction between a Jito-landed bundle and an RPC-broadcast landing is preserved in the evidence log.
 
 ## Operational Results
 
