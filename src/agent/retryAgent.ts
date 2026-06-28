@@ -38,7 +38,7 @@ export class RetryAgent {
         {
           role: "system",
           content:
-            "You are an autonomous Solana transaction operations agent. Decide whether and how to retry a failed Jito bundle using only the provided live evidence. Do not invent slots, signatures, or statuses. Keep reasoning_summary concise and operational."
+            "You are an autonomous Solana transaction operations agent. Decide whether and how to retry a failed Jito bundle using only the provided live evidence. Do not invent slots, signatures, or statuses. reasoning_summary MUST be exactly ONE short sentence (no line breaks, no semicolons, under 160 characters)."
         },
         {
           role: "user",
@@ -77,7 +77,7 @@ export class RetryAgent {
               tip_lamports: { type: "integer", minimum: 0 },
               wait_slots: { type: "integer", minimum: 0, maximum: 32 },
               confidence: { type: "number", minimum: 0, maximum: 1 },
-              reasoning_summary: { type: "string" }
+              reasoning_summary: { type: "string", maxLength: 160 }
             },
             required: [
               "failure_classification",
@@ -99,6 +99,7 @@ export class RetryAgent {
     }
 
     const parsed = decisionSchema.parse(JSON.parse(outputText));
+    parsed.reasoning_summary = toSingleSentence(parsed.reasoning_summary);
     if (parsed.tip_lamports > this.maxTipLamports) {
       throw new Error(`Agent requested tip ${parsed.tip_lamports}, above MAX_TIP_LAMPORTS`);
     }
@@ -111,4 +112,11 @@ export class RetryAgent {
 
 export function parseRetryDecision(raw: string) {
   return decisionSchema.parse(JSON.parse(raw));
+}
+
+function toSingleSentence(value: string) {
+  const collapsed = value.replace(/\s+/g, " ").trim();
+  const firstSentence = collapsed.split(/(?<=[.!?])\s/)[0] ?? collapsed;
+  const trimmed = firstSentence.length > 160 ? `${firstSentence.slice(0, 157)}...` : firstSentence;
+  return trimmed.endsWith(".") || trimmed.endsWith("!") || trimmed.endsWith("?") ? trimmed : `${trimmed}.`;
 }

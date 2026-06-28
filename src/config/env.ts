@@ -14,17 +14,24 @@ const envSchema = z.object({
   YELLOWSTONE_X_TOKEN: z.string().optional(),
   NETWORK: z.enum(["mainnet-beta", "testnet", "devnet"]).default("mainnet-beta"),
   JITO_BLOCK_ENGINE_HTTP: z.string().url().default("https://frankfurt.mainnet.block-engine.jito.wtf"),
+  JITO_BLOCK_ENGINE_HTTP_OVERRIDE: z.string().url().optional(),
   JITO_BLOCK_ENGINE_GRPC: z.string().min(1).default("frankfurt.mainnet.block-engine.jito.wtf"),
+  JITO_BLOCK_ENGINE_GRPC_OVERRIDE: z.string().min(1).optional(),
   JITO_TIP_FLOOR_URL: z.string().url().default("https://bundles.jito.wtf/api/v1/bundles/tip_floor"),
   PAYER_PRIVATE_KEY: z.string().optional(),
   OPENAI_API_KEY: z.string().optional(),
-  OPENAI_MODEL: z.string().default("gpt-5.5"),
+  OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
+  OPENAI_MODEL_OVERRIDE: z.string().optional(),
   DB_PATH: z.string().default("data/lifecycle/txstack.sqlite"),
   MIN_TIP_LAMPORTS: z.coerce.number().int().positive().default(1000),
   MAX_TIP_LAMPORTS: z.coerce.number().int().positive().default(200000),
+  MIN_TIP_LAMPORTS_OVERRIDE: z.coerce.number().int().positive().optional(),
+  MAX_TIP_LAMPORTS_OVERRIDE: z.coerce.number().int().positive().optional(),
   DEFAULT_BUNDLE_COUNT: z.coerce.number().int().positive().default(10),
   LEADER_WINDOW_SLOTS: z.coerce.number().int().positive().default(2),
+  LEADER_WINDOW_SLOTS_OVERRIDE: z.coerce.number().int().nonnegative().optional(),
   SUBMISSION_POLL_MS: z.coerce.number().int().positive().default(500),
+  SUBMISSION_POLL_MS_OVERRIDE: z.coerce.number().int().positive().optional(),
   DASHBOARD_PORT: z.coerce.number().int().positive().default(8787)
 });
 
@@ -33,7 +40,9 @@ export type LocalArtifactConfig = ReturnType<typeof loadLocalArtifactConfig>;
 
 export function loadConfig() {
   const parsed = envSchema.parse(process.env);
-  if (parsed.MIN_TIP_LAMPORTS > parsed.MAX_TIP_LAMPORTS) {
+  const minTipLamports = parsed.MIN_TIP_LAMPORTS_OVERRIDE ?? parsed.MIN_TIP_LAMPORTS;
+  const maxTipLamports = parsed.MAX_TIP_LAMPORTS_OVERRIDE ?? parsed.MAX_TIP_LAMPORTS;
+  if (minTipLamports > maxTipLamports) {
     throw new Error("MIN_TIP_LAMPORTS cannot exceed MAX_TIP_LAMPORTS");
   }
 
@@ -42,18 +51,18 @@ export function loadConfig() {
     yellowstoneEndpoint: normalizeYellowstoneEndpoint(parsed.YELLOWSTONE_ENDPOINT),
     yellowstoneToken: parsed.YELLOWSTONE_X_TOKEN,
     network: parsed.NETWORK as NetworkName,
-    jitoHttpUrl: trimTrailingSlash(parsed.JITO_BLOCK_ENGINE_HTTP),
-    jitoGrpcUrl: normalizeGrpcHost(parsed.JITO_BLOCK_ENGINE_GRPC),
+    jitoHttpUrl: trimTrailingSlash(parsed.JITO_BLOCK_ENGINE_HTTP_OVERRIDE ?? parsed.JITO_BLOCK_ENGINE_HTTP),
+    jitoGrpcUrl: normalizeGrpcHost(parsed.JITO_BLOCK_ENGINE_GRPC_OVERRIDE ?? parsed.JITO_BLOCK_ENGINE_GRPC),
     tipFloorUrl: parsed.JITO_TIP_FLOOR_URL,
     payerPrivateKey: parsed.PAYER_PRIVATE_KEY,
     openAiApiKey: parsed.OPENAI_API_KEY,
-    openAiModel: parsed.OPENAI_MODEL,
+    openAiModel: parsed.OPENAI_MODEL_OVERRIDE ?? parsed.OPENAI_MODEL,
     dbPath: parsed.DB_PATH,
-    minTipLamports: parsed.MIN_TIP_LAMPORTS,
-    maxTipLamports: parsed.MAX_TIP_LAMPORTS,
+    minTipLamports,
+    maxTipLamports,
     defaultBundleCount: parsed.DEFAULT_BUNDLE_COUNT,
-    leaderWindowSlots: parsed.LEADER_WINDOW_SLOTS,
-    submissionPollMs: parsed.SUBMISSION_POLL_MS,
+    leaderWindowSlots: parsed.LEADER_WINDOW_SLOTS_OVERRIDE ?? parsed.LEADER_WINDOW_SLOTS,
+    submissionPollMs: parsed.SUBMISSION_POLL_MS_OVERRIDE ?? parsed.SUBMISSION_POLL_MS,
     dashboardPort: parsed.DASHBOARD_PORT
   };
 }

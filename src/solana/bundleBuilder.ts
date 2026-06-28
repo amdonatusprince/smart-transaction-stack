@@ -54,6 +54,14 @@ export async function buildMemoTipBundle(input: BuildBundleInput): Promise<Built
   instructions.push(
     SystemProgram.transfer({
       fromPubkey: input.payer.publicKey,
+      toPubkey: input.payer.publicKey,
+      lamports: 1
+    })
+  );
+
+  instructions.push(
+    SystemProgram.transfer({
+      fromPubkey: input.payer.publicKey,
       toPubkey: new PublicKey(input.tipAccount),
       lamports: input.tipLamports
     })

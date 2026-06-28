@@ -178,16 +178,106 @@ export class LifecycleStore {
     }));
   }
 
+  listEvents(limit = 80) {
+    return this.db.prepare(`
+      SELECT
+        lifecycle_events.id,
+        lifecycle_events.submission_id as submissionId,
+        lifecycle_events.signature,
+        lifecycle_events.stage,
+        lifecycle_events.slot,
+        lifecycle_events.timestamp,
+        lifecycle_events.raw_json as rawJson,
+        bundle_submissions.bundle_id as bundleId,
+        bundle_submissions.status,
+        bundle_submissions.fault_mode as faultMode,
+        bundle_submissions.tip_lamports as tipLamports,
+        bundle_submissions.leader_slot as leaderSlot
+      FROM lifecycle_events
+      LEFT JOIN bundle_submissions ON bundle_submissions.id = lifecycle_events.submission_id
+      ORDER BY lifecycle_events.timestamp DESC, lifecycle_events.id DESC
+      LIMIT ?
+    `).all(limit) as Array<Record<string, unknown>>;
+  }
+
+  submissionEvents(submissionId: string) {
+    return this.db.prepare(`
+      SELECT
+        id,
+        submission_id as submissionId,
+        signature,
+        stage,
+        slot,
+        timestamp,
+        raw_json as rawJson
+      FROM lifecycle_events
+      WHERE submission_id = ?
+      ORDER BY timestamp ASC, id ASC
+    `).all(submissionId) as Array<Record<string, unknown>>;
+  }
+
+  dashboardSnapshot(limit = 100) {
+    const rows = this.evidenceRows(limit);
+    const events = this.listEvents(80);
+    const summary = this.summary();
+    const active =
+      rows.find((row) => !["finalized", "failed"].includes(String(row.status))) ??
+      rows[0] ??
+      null;
+
+    return {
+      generatedAt: nowIso(),
+      summary,
+      rows,
+      events,
+      active
+    };
+  }
+
   summary() {
     const row = this.db.prepare(`
       SELECT
         COUNT(*) as total,
         COALESCE(SUM(CASE WHEN status = 'finalized' THEN 1 ELSE 0 END), 0) as finalized,
         COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) as failed,
+        COALESCE(SUM(CASE WHEN status IN ('created', 'submitted', 'processed', 'confirmed') THEN 1 ELSE 0 END), 0) as inFlight,
+        COALESCE(SUM(tip_lamports), 0) as totalTipLamports,
+        MIN(tip_lamports) as minTipLamports,
+        MAX(tip_lamports) as maxTipLamports,
+        MAX(COALESCE(finalized_slot, confirmed_slot, processed_slot, submitted_slot, leader_slot)) as latestSlot,
         MAX(updated_at) as lastUpdated
       FROM bundle_submissions
-    `).get() as { total: number; finalized: number; failed: number; lastUpdated?: string };
-    return row;
+    `).get() as {
+      total: number;
+      finalized: number;
+      failed: number;
+      inFlight: number;
+      totalTipLamports: number;
+      minTipLamports?: number | null;
+      maxTipLamports?: number | null;
+      latestSlot?: number | null;
+      lastUpdated?: string;
+    };
+    const rows = this.evidenceRows(500);
+    const confirmedLatencies = rows
+      .map((item) => item.confirmedDeltaMs)
+      .filter((value): value is number => typeof value === "number");
+    const finalizedLatencies = rows
+      .map((item) => item.finalizedDeltaMs)
+      .filter((value): value is number => typeof value === "number");
+    const failures = rows.reduce<Record<string, number>>((acc, item) => {
+      const key = String(item.failureClassification ?? "none");
+      if (key !== "none") acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+    return {
+      ...row,
+      successRate: row.total > 0 ? row.finalized / row.total : 0,
+      landingProbability: row.total > 0 ? Math.max(0.05, row.finalized / row.total) : 0.5,
+      confirmedLatencyMs: summarizeNumbers(confirmedLatencies),
+      finalizedLatencyMs: summarizeNumbers(finalizedLatencies),
+      failures
+    };
   }
 
   private migrate() {
@@ -239,4 +329,24 @@ export class LifecycleStore {
       CREATE INDEX IF NOT EXISTS idx_lifecycle_events_signature ON lifecycle_events(signature);
     `);
   }
+}
+
+function summarizeNumbers(values: number[]) {
+  if (values.length === 0) {
+    return {
+      min: null,
+      median: null,
+      max: null
+    };
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 0
+    ? Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+    : sorted[mid];
+  return {
+    min: sorted[0],
+    median,
+    max: sorted[sorted.length - 1]
+  };
 }

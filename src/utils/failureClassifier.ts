@@ -15,8 +15,11 @@ export function classifyFailure(input: string): FailureClassification {
 
   if (
     text.includes("computational budget exceeded") ||
+    text.includes("computationalbudgetexceeded") ||
     text.includes("computebudgetexceeded") ||
     text.includes("compute unit") ||
+    text.includes("exceeded cus") ||
+    text.includes("programfailedtocomplete") ||
     text.includes("exceeded maximum number of instructions")
   ) {
     return "compute_exceeded";

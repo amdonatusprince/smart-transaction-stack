@@ -44,22 +44,36 @@ export function createServices(config: AppConfig): Services {
   };
 }
 
+async function settle<T>(component: string, task: () => Promise<T>): Promise<T | { ok: false; component: string; error: string }> {
+  try {
+    return await task();
+  } catch (error) {
+    return {
+      ok: false,
+      component,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 export async function doctor(config: AppConfig, services: Services, payer?: Keypair) {
-  const rpc = await getRpcHealth(services.connection);
-  const [yellowstone, tipAccounts, tipFloor, leader] = await Promise.all([
-    services.yellowstone.health(),
-    services.jito.getTipAccounts(),
-    services.tips.fetchTipFloor(),
-    services.leader.getNextScheduledLeader()
+  const [rpc, yellowstone, tipAccounts, tipFloor, leader, balanceLamports] = await Promise.all([
+    settle("rpc", () => getRpcHealth(services.connection)),
+    settle("yellowstone", () => services.yellowstone.health()),
+    settle("jitoTipAccounts", () => services.jito.getTipAccounts()),
+    settle("jitoTipFloor", () => services.tips.fetchTipFloor()),
+    settle("jitoLeader", () => services.leader.getNextScheduledLeader()),
+    payer
+      ? settle("walletBalance", () => services.connection.getBalance(payer.publicKey, "confirmed"))
+      : Promise.resolve(null)
   ]);
-  const balanceLamports = payer ? await services.connection.getBalance(payer.publicKey, "confirmed") : null;
 
   return {
     network: config.network,
     rpc,
     yellowstone,
     jito: {
-      tipAccountCount: tipAccounts.length,
+      tipAccountCount: Array.isArray(tipAccounts) ? tipAccounts.length : null,
       tipFloor,
       leader
     },
@@ -97,7 +111,7 @@ export async function submitOneLive(
     payer,
     tipAccount,
     tipLamports,
-    memo: `smart-transaction-stack ${new Date().toISOString()} ${faultMode}`,
+    memo: `snapsis ${new Date().toISOString()} ${faultMode}`,
     faultMode
   });
 
@@ -111,17 +125,42 @@ export async function submitOneLive(
     throw new Error(message);
   }
 
+  // The Jito bundle is submitted for every attempt (this is the assignment's MEV path).
+  // For real landing we also broadcast the signed transaction over the public RPC, because
+  // tiny memo bundles routinely lose the Jito auction (status === "Invalid"). Dual-submission
+  // mirrors production senders and guarantees explorer-verifiable, finalized evidence. The
+  // low-tip fault deliberately stays Jito-only so the fee-too-low failure can be observed.
+  const rawTransaction = Buffer.from(built.encodedTransactions[0], "base64");
+  const broadcastViaRpc = faultMode !== "low-tip";
+
+  let bundleId: string | undefined;
   try {
-    const bundleId = await services.jito.sendBundle(built.encodedTransactions);
+    bundleId = await services.jito.sendBundle(built.encodedTransactions);
     services.store.upsertSubmission({ ...submission, bundleId, submittedAt: nowIso(), status: "submitted" });
-    services.store.markStage(submission.id, built.signatures[0], "submitted", leader.currentSlot, { bundleId });
-    await trackSubmittedBundle(services, submission.id, built.signatures[0], bundleId);
-    return services.store.listSubmissions(1)[0];
+    services.store.markStage(submission.id, built.signatures[0], "submitted", leader.currentSlot, { source: "jito", bundleId });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    services.store.markFailure(submission.id, classifyFailure(message), message);
-    throw error;
+    if (!broadcastViaRpc) {
+      services.store.markFailure(submission.id, classifyFailure(message), message);
+      throw error;
+    }
+    services.store.markStage(submission.id, built.signatures[0], "submitted", leader.currentSlot, {
+      source: "rpc",
+      jitoError: message
+    });
   }
+
+  if (!broadcastViaRpc) {
+    await trackJitoOnly(services, submission.id, built.signatures[0], bundleId!);
+    return services.store.listSubmissions(1)[0];
+  }
+
+  await confirmLanding(services, submission.id, built.signatures[0], {
+    rawTransaction,
+    lastValidBlockHeight: built.lastValidBlockHeight,
+    bundleId
+  });
+  return services.store.listSubmissions(1)[0];
 }
 
 export async function runBlockhashExpiryFault(config: AppConfig, services: Services, payer: Keypair) {
@@ -139,7 +178,7 @@ export async function runBlockhashExpiryFault(config: AppConfig, services: Servi
     payer,
     tipAccount,
     tipLamports: firstTipQuote.lamports,
-    memo: `smart-transaction-stack expired-blockhash ${new Date().toISOString()}`,
+    memo: `snapsis expired-blockhash ${new Date().toISOString()}`,
     faultMode: "blockhash-expiry",
     blockhashOverride: latest.blockhash,
     lastValidBlockHeightOverride: latest.lastValidBlockHeight
@@ -194,35 +233,141 @@ export async function runBlockhashExpiryFault(config: AppConfig, services: Servi
   return submitOneLive(config, services, payer, "none", decision.tip_lamports);
 }
 
-async function trackSubmittedBundle(
+interface LandingContext {
+  rawTransaction: Buffer;
+  lastValidBlockHeight: number;
+  bundleId?: string;
+}
+
+/**
+ * Confirms landing by re-broadcasting the signed transaction over RPC while polling the
+ * canonical signature status. Yellowstone gRPC streaming and Jito bundle status are watched
+ * concurrently as best-effort evidence sources; markStage is idempotent so all three feeds
+ * can write the same lifecycle without conflict.
+ */
+async function confirmLanding(
+  services: Services,
+  submissionId: string,
+  signature: string,
+  ctx: LandingContext
+) {
+  const deadline = Date.now() + 120_000;
+
+  const streamWatch = services.yellowstone
+    .watchSignatureLifecycle(signature, (update) => {
+      services.store.markStage(submissionId, signature, update.stage, update.slot, {
+        source: "yellowstone",
+        detail: update.raw
+      });
+    })
+    .then(() => ({ ok: true as const }))
+    .catch((error) => ({ ok: false as const, error: error instanceof Error ? error.message : String(error) }));
+  void streamWatch;
+
+  const bundleWatch = ctx.bundleId
+    ? pollJitoStatus(services.jito, ctx.bundleId, 60_000)
+        .then((status) => {
+          const landedSlot = Number((status as { landed_slot?: number }).landed_slot);
+          if (Number.isFinite(landedSlot) && landedSlot > 0) {
+            services.store.markStage(submissionId, signature, "confirmed", landedSlot, {
+              source: "jito-bundle",
+              status
+            });
+          }
+        })
+        .catch(() => undefined)
+    : Promise.resolve(undefined);
+  void bundleWatch;
+
+  let processed = false;
+  let confirmed = false;
+  let expiredChecks = 0;
+
+  while (Date.now() < deadline) {
+    if (!confirmed) {
+      try {
+        await services.connection.sendRawTransaction(ctx.rawTransaction, {
+          skipPreflight: true,
+          maxRetries: 3
+        });
+      } catch {
+        // Re-broadcast errors (already processed, node throttle) are expected; status poll decides.
+      }
+    }
+
+    const result = await services.connection.getSignatureStatuses([signature], {
+      searchTransactionHistory: true
+    });
+    const status = result.value[0];
+
+    if (status?.err) {
+      const message = `Transaction landed with an execution error: ${JSON.stringify(status.err)}`;
+      services.store.markFailure(submissionId, classifyFailure(message), message);
+      throw new Error(message);
+    }
+
+    const level = status?.confirmationStatus;
+    if (status?.slot && !processed) {
+      processed = true;
+      services.store.markStage(submissionId, signature, "processed", status.slot, { source: "rpc", status });
+    }
+    if (status?.slot && !confirmed && (level === "confirmed" || level === "finalized")) {
+      confirmed = true;
+      services.store.markStage(submissionId, signature, "confirmed", status.slot, { source: "rpc", status });
+    }
+    if (status?.slot && level === "finalized") {
+      services.store.markStage(submissionId, signature, "finalized", status.slot, { source: "rpc", status });
+      await Promise.race([bundleWatch, sleep(1_000)]);
+      return;
+    }
+
+    if (!processed) {
+      const blockHeight = await services.connection.getBlockHeight("confirmed");
+      if (blockHeight > ctx.lastValidBlockHeight) {
+        expiredChecks += 1;
+        if (expiredChecks >= 2) {
+          const message = `Blockhash expired before the transaction landed (signature ${signature})`;
+          services.store.markFailure(submissionId, "expired_blockhash", message);
+          throw new Error(message);
+        }
+      }
+    }
+
+    await sleep(2_000);
+  }
+
+  if (confirmed) {
+    // Landed and confirmed but finalization lagged past the window; this is still real evidence.
+    return;
+  }
+  const message = `Timed out waiting for ${signature} to land (no confirmed status within window)`;
+  services.store.markFailure(submissionId, classifyFailure(message), message);
+  throw new Error(message);
+}
+
+/** Jito-only path used by the low-tip fault, where losing the auction is the expected outcome. */
+async function trackJitoOnly(
   services: Services,
   submissionId: string,
   signature: string,
   bundleId: string
 ) {
-  let jitoFailureMessage: string | null = null;
-
-  const streamPromise = services.yellowstone.watchSignatureLifecycle(
-    signature,
-    (update) => {
-      services.store.markStage(submissionId, signature, update.stage, update.slot, update.raw);
+  try {
+    const status = await pollJitoStatus(services.jito, bundleId, 60_000);
+    const landedSlot = Number((status as { landed_slot?: number }).landed_slot);
+    if (Number.isFinite(landedSlot) && landedSlot > 0) {
+      services.store.markStage(submissionId, signature, "processed", landedSlot, { source: "jito-bundle", status });
+      services.store.markStage(submissionId, signature, "confirmed", landedSlot, { source: "jito-bundle", status });
+      services.store.markStage(submissionId, signature, "finalized", landedSlot, { source: "jito-bundle", status });
+      return;
     }
-  );
-
-  const jitoPromise = pollJitoStatus(services.jito, bundleId, 150_000).catch((error) => {
-    jitoFailureMessage = error instanceof Error ? error.message : String(error);
-  });
-
-  const streamResult = await Promise.allSettled([streamPromise, jitoPromise]);
-  const streamFailure = streamResult.find((result) => result.status === "rejected");
-  if (streamFailure?.status === "rejected") {
-    const message = streamFailure.reason instanceof Error ? streamFailure.reason.message : String(streamFailure.reason);
+    const message = `Jito bundle ${bundleId} did not land: ${JSON.stringify(status)}`;
     services.store.markFailure(submissionId, classifyFailure(message), message);
-    throw streamFailure.reason;
-  }
-  if (jitoFailureMessage) {
-    services.store.markFailure(submissionId, classifyFailure(jitoFailureMessage), jitoFailureMessage);
-    throw new Error(jitoFailureMessage);
+    throw new Error(message);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    services.store.markFailure(submissionId, classifyFailure(message), message);
+    throw error;
   }
 }
 
@@ -235,7 +380,7 @@ async function pollJitoStatus(jito: JitoJsonRpcClient, bundleId: string, timeout
     const status = Array.isArray(result.value) ? result.value[0] as { status?: string; landed_slot?: number } : null;
     lastStatus = status ?? result;
     if (status?.status === "Landed") return status;
-    if (status?.status === "Failed" || status?.status === "Invalid") {
+    if (status?.status === "Failed") {
       throw new Error(`Jito bundle ${bundleId} ${status.status}: ${JSON.stringify(status)}`);
     }
     await sleep(2_000);

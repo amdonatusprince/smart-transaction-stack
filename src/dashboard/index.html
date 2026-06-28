@@ -3,69 +3,172 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Smart Transaction Stack</title>
+    <title>Snapsis - Real-time Transaction Console</title>
     <link rel="stylesheet" href="/assets/styles.css" />
   </head>
   <body>
-    <header class="shell topbar">
-      <div>
-        <p class="eyebrow">Live evidence console</p>
-        <h1>Smart Transaction Stack</h1>
+    <header class="topbar">
+      <div class="brand">
+        <a class="logo" href="/" aria-label="Snapsis dashboard">SNAPSIS</a>
+        <span class="tagline">smart tx stack</span>
       </div>
+      <dl class="network-strip" aria-label="Network status">
+        <div><dt>Slot</dt><dd id="network-slot">-</dd></div>
+        <div><dt>Leader</dt><dd id="network-leader">-</dd></div>
+        <div><dt>Success</dt><dd id="network-success">-</dd></div>
+        <div><dt>Tips quoted</dt><dd id="network-tips">-</dd></div>
+      </dl>
+      <nav class="nav" aria-label="Primary">
+        <a href="/" aria-current="page">Dashboard</a>
+        <a href="/architecture">Architecture</a>
+      </nav>
       <button id="refresh" type="button" class="button">Refresh</button>
     </header>
 
-    <main class="shell layout">
-      <section class="metrics" aria-label="Summary">
-        <article class="metric">
-          <span>Total</span>
-          <strong id="total">-</strong>
-        </article>
-        <article class="metric">
-          <span>Finalized</span>
-          <strong id="finalized">-</strong>
-        </article>
-        <article class="metric">
-          <span>Failed</span>
-          <strong id="failed">-</strong>
-        </article>
-        <article class="metric">
-          <span>Updated</span>
-          <strong id="updated">-</strong>
-        </article>
+    <main class="dashboard-shell">
+      <section class="panel probability-panel" aria-labelledby="landing-title">
+        <div class="panel-head compact">
+          <p class="eyebrow" id="landing-title">Landing Probability</p>
+          <span class="status-dot" id="connection-state">syncing</span>
+        </div>
+        <div class="probability-ring" aria-live="polite">
+          <span id="landing-probability">50.0%</span>
+          <small id="landing-label">awaiting evidence</small>
+        </div>
+        <div class="signal-row">
+          <span>tip vs floor</span>
+          <span>leader window</span>
+          <span>stream health</span>
+        </div>
       </section>
 
-      <section class="panel">
-        <div class="section-head">
+      <section class="panel pipeline-panel" aria-labelledby="pipeline-title">
+        <div class="panel-head">
           <div>
-            <p class="eyebrow">Submissions</p>
-            <h2>Lifecycle Log</h2>
+            <p class="eyebrow">Execution Pipeline</p>
+            <h1 id="pipeline-title">Live transaction trace</h1>
           </div>
-          <p id="status" class="status">Loading live evidence</p>
+          <p class="mono subtle">ID: <span id="active-id">-</span></p>
+        </div>
+        <ol class="pipeline" aria-label="Active transaction lifecycle">
+          <li data-stage="created"><span></span><strong>Created</strong><small id="stage-created">-</small></li>
+          <li data-stage="submitted"><span></span><strong>Submitted</strong><small id="stage-submitted">-</small></li>
+          <li data-stage="processed"><span></span><strong>Processed</strong><small id="stage-processed">-</small></li>
+          <li data-stage="confirmed"><span></span><strong>Confirmed</strong><small id="stage-confirmed">-</small></li>
+          <li data-stage="finalized"><span></span><strong>Finalized</strong><small id="stage-finalized">-</small></li>
+        </ol>
+        <div class="active-meta">
+          <span class="mono" id="active-signature">awaiting first bundle</span>
+          <span id="active-tip">tip -</span>
+          <span id="active-target">leader -</span>
+        </div>
+      </section>
+
+      <aside class="panel slot-panel" aria-labelledby="slot-title">
+        <div class="panel-head compact">
+          <p class="eyebrow" id="slot-title">Live Slot Feed</p>
+          <span id="slot-status" class="mini-badge">store</span>
+        </div>
+        <div id="slot-feed" class="slot-feed" aria-live="polite"></div>
+        <div class="leader-card">
+          <p class="eyebrow">Leader Schedule</p>
+          <strong id="leader-slot">-</strong>
+          <span id="leader-identity">awaiting leader evidence</span>
+        </div>
+      </aside>
+
+      <section class="panel decisions-panel" aria-labelledby="decisions-title">
+        <div class="panel-head compact">
+          <p class="eyebrow" id="decisions-title">AI Decisions</p>
+          <span class="mini-badge">agent</span>
+        </div>
+        <div id="ai-decisions" class="decision-list"></div>
+      </section>
+
+      <section class="panel orchestration-panel" aria-labelledby="orchestrations-title">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Live Orchestrations</p>
+            <h2 id="orchestrations-title"><span id="attempt-count">0</span> attempts</h2>
+          </div>
+          <p id="status" class="status" aria-live="polite">Loading live evidence</p>
         </div>
         <div id="empty" class="empty" hidden>
-          <h3>No submissions recorded</h3>
-          <p>Run <code>pnpm dev -- run --count 10 --live</code> after funding the configured payer.</p>
+          <h3>No real submissions recorded</h3>
+          <p>Start the evidence run with <code>pnpm exec tsx src/cli/index.ts run --count 10 --faults blockhash-expiry,compute-exceeded --live</code>. Snapsis will show movement only after the store receives real Jito and Yellowstone evidence.</p>
+        </div>
+        <div id="error" class="error-state" hidden>
+          <strong>Could not load dashboard evidence.</strong>
+          <span id="error-message">Retry in a moment.</span>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Signature</th>
-                <th>Status</th>
-                <th>Fault</th>
-                <th>Slots</th>
-                <th>Latency</th>
-                <th>Tip</th>
-                <th>Failure</th>
-                <th>Agent</th>
+                <th scope="col">Signature</th>
+                <th scope="col">Type</th>
+                <th scope="col">Status</th>
+                <th scope="col">Tip (SOL)</th>
+                <th scope="col">Latency</th>
+                <th scope="col">Trace</th>
               </tr>
             </thead>
             <tbody id="rows"></tbody>
           </table>
         </div>
+        <nav id="pager" class="pager" aria-label="Orchestrations pagination" hidden>
+          <button id="page-prev" class="row-action" type="button" aria-label="Previous page">Prev</button>
+          <span id="page-info" class="mono subtle">page 1</span>
+          <button id="page-next" class="row-action" type="button" aria-label="Next page">Next</button>
+        </nav>
+      </section>
+
+      <section class="panel trace-panel" aria-labelledby="trace-title">
+        <div class="panel-head compact">
+          <p class="eyebrow" id="trace-title">Trace</p>
+          <span id="trace-signature" class="mono subtle">select a bundle</span>
+        </div>
+        <div id="trace-events" class="trace-events"></div>
+        <dl class="trace-grid">
+          <div><dt>Bundle</dt><dd id="trace-bundle">-</dd></div>
+          <div><dt>Fault</dt><dd id="trace-fault">-</dd></div>
+          <div><dt>Leader Slot</dt><dd id="trace-leader">-</dd></div>
+          <div><dt>Status</dt><dd id="trace-status">-</dd></div>
+        </dl>
+      </section>
+
+      <section class="panel recovery-panel" aria-labelledby="recovery-title">
+        <div class="panel-head compact">
+          <p class="eyebrow" id="recovery-title">Recovery Panel</p>
+          <span class="mini-badge">monitor</span>
+        </div>
+        <div id="recovery-content" class="recovery-content"></div>
+      </section>
+
+      <section class="panel metric-panel">
+        <p class="eyebrow">Conf. Latency</p>
+        <strong id="latency-median">-</strong>
+        <div class="bar-strip" id="latency-bars" aria-hidden="true"></div>
+      </section>
+
+      <section class="panel metric-panel">
+        <p class="eyebrow">Tip Vs Success</p>
+        <strong id="tip-range">-</strong>
+        <div class="sparkline" id="tip-points" aria-hidden="true"></div>
+      </section>
+
+      <section class="panel metric-panel network-load">
+        <p class="eyebrow">Network Load</p>
+        <strong id="network-load">0%</strong>
+        <span id="network-load-copy">awaiting run</span>
       </section>
     </main>
+
+    <footer class="footer">
+      <span>Snapsis</span>
+      <span>mainnet evidence only</span>
+      <span id="last-refresh">not refreshed yet</span>
+    </footer>
 
     <script src="/assets/app.js" type="module"></script>
   </body>

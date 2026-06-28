@@ -29,9 +29,15 @@ export class JitoLeaderClient {
 
   async waitForLeaderWindow(windowSlots: number, pollMs: number): Promise<LeaderWindow> {
     for (;;) {
-      const leader = await this.getNextScheduledLeader();
-      if (leader.slotsUntilLeader <= windowSlots) return leader;
-      await sleep(pollMs);
+      try {
+        const leader = await this.getNextScheduledLeader();
+        if (leader.slotsUntilLeader <= windowSlots) return leader;
+        await sleep(pollMs);
+      } catch (error) {
+        const retryMs = retryAfterMs(error);
+        if (retryMs === null) throw error;
+        await sleep(retryMs);
+      }
     }
   }
 
@@ -54,4 +60,11 @@ function unwrapResult(result: unknown) {
     throw new Error(`Jito leader request failed: ${JSON.stringify(maybe.error)}`);
   }
   return result;
+}
+
+function retryAfterMs(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = message.match(/Retry after (\d+)ms/);
+  if (!match) return null;
+  return Math.min(Number(match[1]), 120_000);
 }

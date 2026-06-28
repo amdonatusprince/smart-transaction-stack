@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Snapsis - Architecture Report</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body class="report-body">
+    <div class="read-progress" aria-hidden="true"><span id="read-bar"></span></div>
+    <header class="topbar">
+      <div class="brand">
+        <a class="logo" href="/" aria-label="Snapsis dashboard">SNAPSIS</a>
+        <span class="tagline">architecture report</span>
+      </div>
+      <nav class="nav" aria-label="Primary">
+        <a href="/">Dashboard</a>
+        <a href="/architecture" aria-current="page">Architecture</a>
+      </nav>
+    </header>
+
+    <main class="report-shell">
+      <aside class="report-toc" aria-label="Contents">
+        <p class="eyebrow">Contents</p>
+        <ol id="toc"></ol>
+      </aside>
+      <article id="report" class="report-content" aria-live="polite">
+        <p class="subtle">Loading architecture report...</p>
+      </article>
+    </main>
+
+    <script src="/assets/report.js" type="module"></script>
+  </body>
+</html>

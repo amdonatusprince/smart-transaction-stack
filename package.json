@@ -1,9 +1,9 @@
 {
-  "name": "smart-transaction-stack",
+  "name": "snapsis",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Live Solana smart transaction stack with Jito bundles, Yellowstone lifecycle tracking, and an AI retry agent.",
+  "description": "Snapsis: live Solana smart transaction stack with Jito bundles, Yellowstone lifecycle tracking, and an AI retry agent.",
   "bin": {
     "txstack": "./dist/cli/index.js"
   },
@@ -13,6 +13,8 @@
     "doctor": "tsx src/cli/index.ts doctor",
     "dashboard": "tsx src/cli/index.ts dashboard",
     "export": "tsx src/cli/index.ts export",
+    "render:shots": "node scripts/render-mermaid-shots.mjs",
+    "build:article": "node scripts/build-article.mjs",
     "test": "vitest run",
     "test:live:devnet": "LIVE_DEVNET=1 vitest run test/live-devnet.test.ts",
     "test:live:mainnet": "LIVE_MAINNET=1 vitest run test/live-mainnet.test.ts",

@@ -28,7 +28,10 @@ export class YellowstoneClient {
     const client = await this.connect();
     const sdk = await this.getSdk();
     const [version, processedSlot, confirmedSlot] = await Promise.all([
-      client.getVersion(),
+      client.getVersion().catch((error: Error) => ({
+        unavailable: true,
+        message: error.message
+      })),
       client.getSlot(sdk.CommitmentLevel.PROCESSED),
       client.getSlot(sdk.CommitmentLevel.CONFIRMED)
     ]);

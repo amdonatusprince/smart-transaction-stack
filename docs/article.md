@@ -1,4 +1,4 @@
-# Snapsis Architecture
+# How to Build an AI-Powered Smart Transaction Stack with Yellowstone gRPC and Jito Bundles
 
 Getting a transaction onto Solana is easy. Proving that it landed the way you intended — through the right leader window, with an evidence-backed tip, and tracked across every commitment stage — is the hard part that separates a demo from infrastructure. This document walks through exactly how Snapsis does that: how each service participates in execution, how lifecycle evidence is captured rather than mocked, and how a single constrained AI decision recovers a failed bundle.
 
@@ -44,38 +44,7 @@ The implementation is organized around infrastructure boundaries rather than UI 
 
 At a high level, the stack is a live transaction operations loop. The CLI creates service clients from environment config, the orchestrator runs one or more bundle attempts, streaming infrastructure records lifecycle evidence, and the dashboard/export commands read the same persisted store.
 
-```mermaid
-flowchart LR
-  Operator[Operator] --> CLI[txstack CLI]
-  CLI --> Config[Config and safety rails]
-  Config --> RPC[Solana RPC]
-  Config --> Yellowstone[Yellowstone gRPC]
-  Config --> JitoHTTP[Jito JSON-RPC]
-  Config --> JitoGRPC[Jito Searcher Client]
-  Config --> OpenAI[OpenAI Responses API]
-
-  JitoGRPC --> Leader[Jito leader window]
-  JitoHTTP --> Tips[Tip accounts and tip floor]
-  RPC --> Blockhash[Confirmed blockhash]
-  RPC --> Simulation[Transaction simulation]
-
-  Leader --> Orchestrator[Submission orchestrator]
-  Tips --> Orchestrator
-  Blockhash --> Builder[Bundle builder]
-  Simulation --> Orchestrator
-  Builder --> Orchestrator
-  Orchestrator --> JitoHTTP
-  JitoHTTP --> BundleStatus[Bundle status]
-
-  Yellowstone --> Lifecycle[Lifecycle tracker]
-  BundleStatus --> Lifecycle
-  Lifecycle --> Store[(SQLite evidence store)]
-  Orchestrator --> Store
-  OpenAI --> Orchestrator
-
-  Store --> Dashboard[Read-only dashboard]
-  Store --> Export[JSONL and CSV export]
-```
+![System architecture](../shots/system-architecture.png)
 
 ### Architectural Style
 
@@ -277,42 +246,7 @@ This is how the implementation prevents the agent from becoming an unconstrained
 
 The normal execution flow is:
 
-```mermaid
-sequenceDiagram
-  autonumber
-  actor Operator
-  participant CLI as txstack CLI
-  participant RPC as Solana RPC
-  participant YS as Yellowstone gRPC
-  participant Jito as Jito Block Engine
-  participant Tips as Tip Oracle
-  participant Builder as Bundle Builder
-  participant Store as SQLite Store
-  participant Dash as Dashboard
-
-  Operator->>CLI: pnpm exec tsx src/cli/index.ts run --count 10 --live
-  CLI->>RPC: getGenesisHash, getVersion, getBalance
-  CLI->>YS: connect and health check
-  CLI->>Jito: getTipAccounts
-  CLI->>Tips: fetch live tip floor
-  CLI->>Jito: getNextScheduledLeader
-  CLI->>CLI: wait until leader window <= configured slots
-  CLI->>RPC: getLatestBlockhash(confirmed)
-  CLI->>Builder: build and sign memo plus tip tx
-  Builder-->>CLI: base64 tx and signature
-  CLI->>RPC: simulate transaction
-  CLI->>Store: create submission row
-  CLI->>Jito: sendBundle([base64 tx])
-  Jito-->>CLI: bundle id
-  CLI->>Store: mark submitted
-  CLI->>YS: subscribe by signature and slot
-  YS-->>Store: processed event
-  YS-->>Store: confirmed event
-  YS-->>Store: finalized event
-  CLI->>Jito: poll inflight bundle status
-  Jito-->>Store: landed or failed status
-  Store-->>Dash: read-only lifecycle rows
-```
+![Transaction execution flow](../shots/execution-sequence.png)
 
 ### Dual submission and RPC-confirmed landing
 
@@ -339,19 +273,7 @@ This stack records those domains separately so the lifecycle log is operationall
 
 Each submission starts as `created`, then progresses through runtime-observed states.
 
-```mermaid
-stateDiagram-v2
-  [*] --> created
-  created --> submitted: Jito sendBundle accepted
-  submitted --> processed: Yellowstone sees tx/status at processed
-  processed --> confirmed: Yellowstone slot update reaches confirmed
-  confirmed --> finalized: Yellowstone slot update reaches finalized
-  created --> failed: simulation or submit failure
-  submitted --> failed: Jito invalid/failed or stream timeout
-  processed --> failed: later bundle/status error
-  failed --> [*]
-  finalized --> [*]
-```
+![Lifecycle tracking model](../shots/lifecycle-states.png)
 
 The evidence row captures both timestamps and slots:
 
@@ -432,20 +354,7 @@ It does:
 - choose a small wait before retry if useful
 - provide a concise reasoning summary for the evidence log
 
-```mermaid
-flowchart TD
-  Failure[Expired blockhash failure evidence] --> AgentInput[Structured agent input]
-  AgentInput --> Model[OpenAI Responses API]
-  Model --> Decision[Strict JSON decision]
-  Decision --> Validation[Zod validation and safety rails]
-  Validation -->|valid retry| Rebuild[Refresh confirmed blockhash and rebuild]
-  Validation -->|invalid or no retry| Stop[Stop and log refusal]
-  Rebuild --> Retip[Use agent tip within bounds]
-  Retip --> Wait[Wait requested slots]
-  Wait --> Resubmit[Submit new Jito bundle]
-  Stop --> Store[(SQLite evidence)]
-  Resubmit --> Store
-```
+![AI retry flow](../shots/ai-retry-flow.png)
 
 The key design point is that the retry is not a hardcoded sequence. The runner creates evidence, asks the model for a structured decision, validates the response, and only then executes the retry path.
 
@@ -509,99 +418,31 @@ The dashboard intentionally reads only the evidence store. This avoids several b
 
 ### 10.1 `doctor`
 
-```mermaid
-flowchart LR
-  Doctor[doctor command] --> Config[loadConfig]
-  Config --> RPC[RPC health]
-  Config --> YS[Yellowstone health]
-  Config --> JitoTips[Jito tip accounts and floor]
-  Config --> JitoLeader[Jito next leader]
-  Config --> Wallet[Optional payer balance]
-  Config --> AI[OpenAI configured flag]
-  RPC --> Output[JSON report]
-  YS --> Output
-  JitoTips --> Output
-  JitoLeader --> Output
-  Wallet --> Output
-  AI --> Output
-```
+![Doctor command flow](../shots/command-doctor.png)
 
 Purpose: prove live infrastructure connectivity before spending.
 
 ### 10.2 `run`
 
-```mermaid
-flowchart TD
-  Run[run --live] --> Faults[Parse requested fault modes]
-  Faults --> Attempt[Create bundle attempt]
-  Attempt --> Leader[Wait for Jito leader window]
-  Leader --> Tip[Quote live tip]
-  Tip --> Build[Build signed tx]
-  Build --> Sim[Simulate]
-  Sim --> Submit[sendBundle]
-  Submit --> Stream[Yellowstone lifecycle]
-  Submit --> JitoStatus[Jito inflight status]
-  Stream --> Store[(SQLite)]
-  JitoStatus --> Store
-  Store --> More{count reached?}
-  More -->|no| Attempt
-  More -->|yes| Done[Summary]
-```
+![Run command flow](../shots/command-run.png)
 
 Purpose: produce the 10 real bundle submissions required by the bounty.
 
 ### 10.3 `fault:blockhash-expiry`
 
-```mermaid
-flowchart TD
-  Fault[blockhash expiry --live] --> Fresh[Fetch confirmed blockhash]
-  Fresh --> Sign[Sign bundle with current blockhash]
-  Sign --> Wait[Wait past lastValidBlockHeight]
-  Wait --> SubmitExpired[Submit expired bundle]
-  SubmitExpired --> Failure[Classify failure]
-  Failure --> Evidence[Build agent evidence]
-  Evidence --> Agent[OpenAI retry agent]
-  Agent --> Validate[Validate JSON and rails]
-  Validate -->|retry| Refresh[Refresh blockhash]
-  Validate -->|no retry| Stop[Stop and log]
-  Refresh --> Retip[Apply agent tip]
-  Retip --> Resubmit[Submit replacement bundle]
-  Resubmit --> Lifecycle[Track lifecycle]
-  Lifecycle --> Store[(SQLite)]
-  Stop --> Store
-```
+![Blockhash-expiry command flow](../shots/command-fault-blockhash.png)
 
 Purpose: satisfy the AI Agent Demonstration requirement.
 
 ### 10.4 `dashboard`
 
-```mermaid
-flowchart LR
-  Browser[Browser] --> Server[Express dashboard server]
-  Server --> Store[(SQLite evidence store)]
-  Store --> Summary["/api/summary"]
-  Store --> Rows["/api/submissions"]
-  Store --> Live["/api/live"]
-  Store --> Events["/api/submissions/:id/events"]
-  Server --> Architecture["/architecture"]
-  Summary --> UI[Dashboard UI]
-  Rows --> UI
-  Live --> UI
-  Events --> UI
-  Architecture --> Browser
-```
+![Dashboard command flow](../shots/command-dashboard.png)
 
 Purpose: inspect real evidence visually without generating data.
 
 ### 10.5 `export`
 
-```mermaid
-flowchart LR
-  Export[export command] --> Store[(SQLite)]
-  Store --> Rows[Evidence rows with latency deltas]
-  Rows --> JSONL[JSONL file]
-  Rows --> CSV[CSV file]
-```
+![Export command flow](../shots/command-export.png)
 
 Purpose: create judge-ready lifecycle artifacts.
 

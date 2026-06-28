@@ -13,7 +13,7 @@ const program = new Command();
 
 program
   .name("txstack")
-  .description("Live Solana smart transaction stack with Jito bundles, Yellowstone tracking, and AI retry decisions.")
+  .description("Snapsis live Solana transaction stack with Jito bundles, Yellowstone tracking, and AI retry decisions.")
   .version("0.1.0");
 
 program.command("doctor")
@@ -45,21 +45,30 @@ program.command("run")
 
     try {
       let attempts = 0;
+      const errors: string[] = [];
       for (const fault of faults) {
-        if (fault === "blockhash-expiry") {
-          await runBlockhashExpiryFault(config, services, payer);
-        } else {
-          await submitOneLive(config, services, payer, fault);
+        try {
+          if (fault === "blockhash-expiry") {
+            await runBlockhashExpiryFault(config, services, payer);
+          } else {
+            await submitOneLive(config, services, payer, fault);
+          }
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
         }
         attempts += 1;
       }
 
       while (attempts < count) {
-        await submitOneLive(config, services, payer, "none");
+        try {
+          await submitOneLive(config, services, payer, "none");
+        } catch (error) {
+          errors.push(error instanceof Error ? error.message : String(error));
+        }
         attempts += 1;
       }
 
-      console.log(JSON.stringify({ completedAttempts: attempts, summary: services.store.summary() }, null, 2));
+      console.log(JSON.stringify({ completedAttempts: attempts, errors, summary: services.store.summary() }, null, 2));
     } finally {
       services.store.close();
     }

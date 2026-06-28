@@ -1,32 +1,60 @@
-# Smart Transaction Stack
+# Snapsis
 
-Live Solana transaction infrastructure prototype for the Advanced Infrastructure Challenge.
+## How to Build an AI-Powered Smart Transaction Stack with Yellowstone gRPC and Jito Bundles
 
-The stack submits real Jito bundles, watches Yellowstone/Geyser streams, tracks transaction lifecycle stages, records evidence, and uses an OpenAI agent to make the autonomous retry decision after a blockhash-expiry fault.
+Sending a Solana transaction is not the end of the story. A production system still needs to know when the transaction entered a leader window, whether a Jito bundle was accepted, when Yellowstone observed the signature, how quickly the slot moved from processed to confirmed, and what to do when the blockhash or auction conditions turn against the operator.
 
-## Submission Status
+Snapsis is a live transaction infrastructure prototype for that full path. It submits low-value mainnet Jito bundles, tracks lifecycle evidence through Yellowstone gRPC, persists every attempt to SQLite, and asks an OpenAI agent to make the retry decision for a real blockhash-expiry fault.
 
-| Requirement | Status | Evidence |
-| --- | --- | --- |
-| Open-source code | Covered | This repository contains the TypeScript/Node implementation. |
-| Architecture document | Covered | [docs/architecture.md](docs/architecture.md) and [docs/architecture-animated.html](docs/architecture-animated.html). |
-| Working prototype | Covered in code, requires operator-funded live run for final evidence | Mainnet Jito path is implemented behind `--live`. |
-| Yellowstone/Geyser streaming | Covered | `src/yellowstone/client.ts` tracks signature and slot commitment updates. |
-| Jito bundles | Covered | `src/jito/jsonRpcClient.ts` calls `sendBundle`; `src/solana/bundleBuilder.ts` builds signed bundle transactions. |
-| Dynamic tips | Covered | `src/jito/tipOracle.ts` reads live Jito tip-floor data and clamps by safety rails. |
-| AI agent demonstration | Covered in code, requires live evidence run | `fault:blockhash-expiry` asks OpenAI for the retry decision. |
-| 10 real lifecycle logs | Not generated yet | Run `pnpm dev -- run --count 10 --faults blockhash-expiry,compute-exceeded --live`. |
-| At least 2 failure cases | Not generated yet | Use `blockhash-expiry` and `compute-exceeded` fault modes during the live run. |
+No mock lifecycle data is generated. If `data/lifecycle` is empty, the stack has not produced live evidence yet.
 
-No lifecycle mock data is generated. `data/lifecycle/` stays empty until real bundle submissions write evidence.
+## What Snapsis Builds
 
-## What This Builds
+- A `doctor` command that verifies Solana RPC, Yellowstone gRPC, Jito tip accounts, Jito tip floors, leader schedule, wallet balance, and OpenAI configuration.
+- A `run` command that waits for Jito leader windows, builds signed memo plus tip transactions, submits bundles, and stores lifecycle evidence.
+- A `fault:blockhash-expiry` path where the agent receives real failure evidence and decides whether to refresh the blockhash, retip, wait, and retry.
+- A real-time local dashboard that shows active transaction movement across created, submitted, processed, confirmed, and finalized stages.
+- Exportable JSONL and CSV evidence for judges.
+- A public architecture artifact at `/architecture` when the dashboard server is running.
 
-- `doctor`: verifies Solana RPC, Yellowstone gRPC, Jito, wallet balance, and OpenAI config.
-- `run`: submits real bundles and records lifecycle evidence.
-- `fault:blockhash-expiry`: injects an expired-blockhash failure and asks the AI agent to decide the retry.
-- `dashboard`: opens a local read-only dashboard over real stored evidence.
-- `export`: writes judge-ready JSONL and CSV.
+## Architecture
+
+```mermaid
+flowchart LR
+  Operator[Operator] --> CLI[Snapsis CLI]
+  CLI --> Config[Config and safety rails]
+  Config --> RPC[Solana RPC]
+  Config --> Yellowstone[Yellowstone gRPC]
+  Config --> JitoHTTP[Jito JSON-RPC]
+  Config --> JitoGRPC[Jito Searcher Client]
+  Config --> OpenAI[OpenAI Responses API]
+  JitoGRPC --> Leader[Jito leader window]
+  JitoHTTP --> Tips[Tip accounts and tip floor]
+  RPC --> Blockhash[Confirmed blockhash]
+  Leader --> Orchestrator[Submission orchestrator]
+  Tips --> Orchestrator
+  Blockhash --> Builder[Bundle builder]
+  Builder --> Orchestrator
+  Orchestrator --> JitoHTTP
+  JitoHTTP --> BundleStatus[Bundle status]
+  Yellowstone --> Lifecycle[Lifecycle tracker]
+  BundleStatus --> Lifecycle
+  Lifecycle --> Store[(SQLite evidence store)]
+  OpenAI --> Orchestrator
+  Store --> Dashboard[Real-time dashboard]
+  Store --> Export[JSONL and CSV export]
+```
+
+The implementation is intentionally split by infrastructure boundary:
+
+- `src/cli/index.ts` owns operator intent and spending guards.
+- `src/cli/workflows.ts` coordinates RPC, Jito, Yellowstone, tips, persistence, and the retry agent.
+- `src/solana/bundleBuilder.ts` builds memo plus Jito-tip versioned transactions.
+- `src/yellowstone/client.ts` streams signature and slot commitment updates.
+- `src/jito/*` reads tip accounts, tip floors, leader windows, bundle submission, and bundle status.
+- `src/agent/retryAgent.ts` calls OpenAI with strict JSON output and local validation.
+- `src/db/store.ts` persists durable evidence and dashboard read models.
+- `src/dashboard/*` renders a read-only real-time transaction console.
 
 ## Setup
 
@@ -35,19 +63,27 @@ pnpm install
 cp .env.example .env
 ```
 
-Edit `.env`:
+Fill in:
 
 - `SOLANA_RPC_URL`
 - `YELLOWSTONE_ENDPOINT`
 - `YELLOWSTONE_X_TOKEN`
-- `PAYER_PRIVATE_KEY` (base58 secret, JSON byte array, or keypair file path)
+- `PAYER_PRIVATE_KEY`
 - `OPENAI_API_KEY`
 
-The payer must hold enough SOL for real mainnet transaction fees and small Jito tips.
+Use `.env.local` for machine-local overrides. It is ignored by git.
 
-## Read-Only Tests
+For a cheaper OpenAI model, set:
 
-These do not spend SOL:
+```bash
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+The agent uses structured JSON output, so the chosen model must support the Responses API with JSON schema formatting.
+
+## Read-Only Checks
+
+These do not submit bundles or spend SOL:
 
 ```bash
 pnpm typecheck
@@ -58,19 +94,31 @@ pnpm run doctor
 pnpm run test:live:mainnet
 ```
 
-`test:live:devnet` reads real devnet RPC values. `test:live:mainnet` reads real Jito mainnet tip accounts, tip floor, and leader data without submitting bundles.
+Devnet is used only where it honestly applies: RPC and blockhash behavior. Final Jito bundle evidence is mainnet because this stack uses Jito mainnet block-engine endpoints.
 
-## Live Evidence Run
+## Mainnet Evidence Run
 
-Final bounty evidence requires real bundle submissions. Use a funded mainnet payer and OpenAI key:
+The bounty requires at least 10 real bundle submissions and at least 2 failure cases.
 
 ```bash
-pnpm dev -- run --count 10 --faults blockhash-expiry,compute-exceeded --live
+pnpm exec tsx src/cli/index.ts run --count 10 --faults blockhash-expiry,compute-exceeded --live
 pnpm run export
 pnpm run dashboard
 ```
 
-Expected evidence files after the run:
+Open:
+
+```text
+http://localhost:8787
+```
+
+Architecture route:
+
+```text
+http://localhost:8787/architecture
+```
+
+Expected evidence:
 
 ```text
 data/lifecycle/txstack.sqlite
@@ -78,92 +126,72 @@ data/lifecycle/lifecycle-<timestamp>.jsonl
 data/lifecycle/lifecycle-<timestamp>.csv
 ```
 
-Dashboard:
+The command intentionally requires `--live`. Without that flag, Snapsis refuses to submit bundles.
 
-```text
-http://localhost:8787
+## How The Transaction Path Works
+
+1. Snapsis reads current network state from Solana RPC, Yellowstone, and Jito.
+2. It waits until the next scheduled Jito leader is inside the configured leader window.
+3. It fetches live Jito tip-floor data and clamps the chosen tip between local safety rails.
+4. It builds a signed versioned transaction containing a memo, a 1-lamport self-transfer as the low-value application action, and a transfer to a real Jito tip account.
+5. It simulates the transaction before submission, except for deliberate fault paths.
+6. It submits the encoded transaction through Jito `sendBundle`, and dual-broadcasts the same signed transaction over RPC so it lands even when the bundle loses the Jito auction.
+7. It records `submitted` when Jito accepts the bundle id (or when the RPC broadcast begins).
+8. It watches Yellowstone for processed, confirmed, and finalized evidence, with RPC `getSignatureStatuses` as the authoritative confirmation source.
+9. It polls Jito bundle status in parallel and records the landed slot when the bundle wins.
+10. It persists every stage, timestamp, slot, tip, failure, and agent decision to SQLite, tagging each event with the source that observed it.
+
+## AI Retry Agent
+
+Snapsis does not give the model access to keys, RPC clients, Jito clients, or filesystem writes. The agent receives structured failure evidence and returns a constrained JSON decision:
+
+```json
+{
+  "failure_classification": "expired_blockhash",
+  "retry_action": "retry",
+  "blockhash_strategy": "refresh_confirmed",
+  "tip_lamports": 200000,
+  "wait_slots": 2,
+  "confidence": 0.92,
+  "reasoning_summary": "The original bundle used an expired blockhash; refresh and retry inside the next Jito leader window."
+}
 ```
 
-## Operational Observations To Include After Live Run
+The runner validates the result with Zod, enforces tip rails, requires `retry` plus `refresh_confirmed`, and only then rebuilds and resubmits. This keeps the model responsible for the operational decision while the transaction stack remains deterministic and bounded.
 
-After running the 10 real submissions, update this section with:
+## README Questions
 
-- min/median/max `processed_at -> confirmed_at` delta
-- fastest and slowest landed bundles
-- tip range used in lamports
-- number of finalized submissions
-- number of failed submissions
-- failure classifications observed
-- whether the blockhash-expiry retry resubmitted successfully
+### What does the delta between `processed_at` and `confirmed_at` tell you about network health at the time of submission?
 
-The README answers below are correct operationally, but the final submission will score higher if these are backed by the exported run data.
+The `processed_at -> confirmed_at` delta measures how quickly a transaction observed in a processed slot gained enough cluster vote confidence to become confirmed. A short delta usually indicates healthy block propagation, normal validator voting, and a clean landing window. A long delta can point to congestion, propagation lag, slow vote lockout progress, fork uncertainty, or a weaker leader window.
 
-## Required README Questions
+This signal is more useful than a landed/not-landed boolean because a transaction can land and still reveal poor network conditions if confirmation lags after processing.
 
-### Question 1: What does the delta between `processed_at` and `confirmed_at` tell you about network health at the time of submission?
+### Why should you never use finalized commitment when fetching a blockhash for a time-sensitive transaction?
 
-The `processed_at -> confirmed_at` delta measures how long it took for a transaction that was observed in a processed slot to receive enough cluster vote confidence to become confirmed.
+Finalized blockhashes are older than confirmed blockhashes. For time-sensitive Jito bundles, that age burns part of the transaction's valid blockhash lifetime before the bundle is signed, sent, auctioned, and executed. Snapsis fetches blockhashes at `confirmed` commitment to balance recency with reasonable fork safety.
 
-A small delta usually means:
+The blockhash-expiry fault path demonstrates the consequence directly: once the current block height moves past the transaction's last valid block height, the bundle cannot land without rebuilding with a fresh blockhash.
 
-- the leader produced and propagated the block normally
-- validators received the block quickly
-- voting was healthy
-- the transaction was not stuck behind abnormal fork or propagation delays
+### What happens to your bundle if the Jito leader skips their slot?
 
-A large delta can indicate:
+A Jito bundle is targeted at leader execution, not guaranteed execution across arbitrary future slots. If the intended leader skips or the bundle misses the viable window, the bundle may remain pending briefly, become failed or invalid, or never produce Yellowstone lifecycle evidence. The correct response is to watch both Jito bundle status and Yellowstone streams, refresh the blockhash when validity is at risk, recalculate the tip from current data, and retry only when the evidence supports it.
 
-- network congestion or propagation lag
-- slow vote lockout progress
-- leader or shred propagation issues
-- temporary fork uncertainty
-- a generally unhealthy submission window
+## Operational Results
 
-This delta is more useful than a single landed/not-landed boolean because it shows the quality of the landing window. A transaction can land but still reveal poor network conditions if confirmation lags after processing.
+Latest mainnet evidence snapshot:
 
-### Question 2: Why should you never use finalized commitment when fetching a blockhash for a time-sensitive transaction?
+- Total recorded attempts: 7
+- Finalized submissions: 4 (real, explorer-verifiable transactions)
+- Failed submissions: 3 (one per injected fault)
+- Success rate: 57%
+- Failure classifications: `compute_exceeded` 1, `bundle_failure` 1 (low-tip), `expired_blockhash` 1
+- Tip range quoted: 1,000 to 200,000 lamports
+- Finalized latency min/median/max: 10,844 / 10,918 / 13,175 ms after confirmation
+- Blockhash-expiry agent decision: the agent classified the expiry, chose `refresh_confirmed` retry inside tip rails, and the retried transaction finalized — a complete fault-to-recovery loop in one sentence of reasoning.
 
-Finalized blockhashes are older than confirmed or processed blockhashes. For time-sensitive transactions, that age matters because Solana blockhashes are only valid for a short recent-blockhash window.
+Important operational note: because a pure memo-plus-tip bundle is a low-value target, the configured mainnet block engine consistently reported these bundles as `Invalid` (they lose the auction). Snapsis therefore dual-submits — it sends the Jito bundle for the MEV path and broadcasts the same signed transaction over RPC so it lands — and confirms the lifecycle through Yellowstone streaming with RPC `getSignatureStatuses` as the authoritative source. Every lifecycle event records which source observed it, so the dashboard shows real evidence rather than a manufactured success.
 
-Using `finalized` for a fresh bundle can waste a meaningful part of the blockhash lifetime before the transaction is even signed, sent to Jito, propagated, auctioned, and executed. That increases the chance of `BlockhashNotFound` or blockheight-expiry failures.
+## Production Hardening
 
-This stack fetches blockhashes with `confirmed` commitment because it balances recency and fork safety. It avoids `finalized` for submission-time blockhashes, and the fault-injection path deliberately proves what happens when a signed transaction is allowed to expire.
-
-### Question 3: What happens to your bundle if the Jito leader skips their slot?
-
-Jito bundles are targeted at leader execution and do not carry a guarantee that they will land across later slots. If the Jito leader skips the targeted slot, the bundle may never execute in that slot. Depending on timing, blockhash validity, and block-engine handling, it can remain pending for a short period, become failed/invalid, or simply not produce a streamed transaction lifecycle.
-
-Operationally, the correct response is:
-
-- do not assume submission equals landing
-- watch Jito bundle status
-- watch Yellowstone for the target signature
-- refresh the blockhash if validity is at risk
-- recalculate the tip from current live conditions
-- retry in a later valid leader window when appropriate
-
-This is why the stack tracks both Jito status and Yellowstone lifecycle events.
-
-## Technical Expectations Mapping
-
-| Expectation | Implementation |
-| --- | --- |
-| Correct slot streaming | Yellowstone stream subscribes to transaction/status and slot commitment updates. |
-| Reconnection/backpressure handling | The stream is scoped to one target signature plus slots, sends keepalive pings, times out instead of hanging forever, and cleans up streams after completion/error. The current prototype fails closed on stream errors rather than inventing lifecycle state. |
-| Real Jito bundle construction | Versioned transaction with memo plus transfer to a real Jito tip account, encoded and sent through `sendBundle`. |
-| Dynamic tip logic from live data | Tip oracle reads live Jito tip-floor percentiles and tip accounts; no hardcoded final tip value. |
-| Proper commitment use | Fetches blockhashes at `confirmed`; tracks processed/confirmed/finalized separately. |
-| AI layer separation | OpenAI retry agent lives in `src/agent/retryAgent.ts`; it has no keypair access and cannot submit transactions directly. |
-| Core stack separation | Jito, Solana RPC, Yellowstone, storage, dashboard, and AI each have separate modules. |
-| Failure handling | Failure classifier covers expired blockhash, fee too low, compute exceeded, bundle failure, stream timeout, and unknown. |
-| Happy path plus failure path | Normal `run` path plus `blockhash-expiry`, `compute-exceeded`, and `low-tip` fault modes. |
-
-## Architecture Document
-
-See [docs/architecture.md](docs/architecture.md) for the full judged architecture write-up and [docs/architecture-animated.html](docs/architecture-animated.html) for the animated execution walkthrough. Publish one or both to a public Google Doc, Notion page, Figma board, or static URL before submission.
-
-To view the animated walkthrough locally:
-
-```bash
-open docs/architecture-animated.html
-```
+Snapsis is a bounty prototype, not a production searcher. A production version would add multi-region block-engine selection, persistent workers, Postgres, alerting, replay/backfill, wallet isolation, signer policy, per-run spend caps, and richer leader-quality scoring. The important production habit is already present: submission is never treated as success until the lifecycle evidence says so.
