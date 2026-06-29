@@ -428,9 +428,8 @@ async function agentAutonomousRetry(
 }
 
 /**
- * Continuous live simulation. Most rounds are normal submissions so the dashboard shows
- * movement immediately. Every 4th round rotates through a real fault so the failure mix is
- * representative instead of all-blockhash:
+ * Fixed-batch live simulation. Most rounds are normal submissions; every 4th round
+ * rotates through a real fault so the failure mix is representative:
  *   - blockhash-expiry → full agent detect→reason→refresh→recalculate→resubmit loop
  *   - low-tip          → underpriced bundle loses the Jito auction (fee_too_low)
  *   - compute-exceeded → transaction blows its compute budget (compute_exceeded)

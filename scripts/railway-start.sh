@@ -40,8 +40,11 @@ if [ "${RAILWAY_RUN_WORKER:-1}" != "1" ]; then
   exit 0
 fi
 
-echo "Starting live worker loop (simulate → pause → repeat)"
-while true; do
-  pnpm exec tsx src/cli/index.ts simulate --count 20 --interval 3000 --live || true
-  sleep 5
-done
+SIMULATE_COUNT="${SIMULATE_COUNT:-20}"
+SIMULATE_INTERVAL_MS="${SIMULATE_INTERVAL_MS:-3000}"
+
+echo "Starting one-shot evidence run (${SIMULATE_COUNT} transactions, mix of success and failure)"
+pnpm exec tsx src/cli/index.ts simulate --count "$SIMULATE_COUNT" --interval "$SIMULATE_INTERVAL_MS" --live || true
+
+echo "Evidence run complete — dashboard stays up for review"
+wait "$dashboard_pid"

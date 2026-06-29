@@ -91,8 +91,8 @@ program.command("fault:blockhash-expiry")
   });
 
 program.command("simulate")
-  .description("Continuously submit live bundles with autonomous AI retry decisions. Run alongside the dashboard to watch live evidence accumulate.")
-  .option("--count <number>", "total simulation rounds (default 12)", parseInt)
+  .description("Submit a fixed batch of live bundles with autonomous AI retry decisions, then stop.")
+  .option("--count <number>", "total simulation rounds (default 20)", parseInt)
   .option("--interval <ms>", "milliseconds between attempts (default 2000)", parseInt)
   .option("--live", "required guard for real mainnet submission")
   .action(async (options: { count?: number; interval?: number; live?: boolean }) => {
@@ -100,7 +100,7 @@ program.command("simulate")
     const config = loadConfig();
     const services = createServices(config);
     const payer = loadKeypair(config.payerPrivateKey);
-    const count = options.count ?? 12;
+    const count = options.count ?? 20;
     const intervalMs = options.interval ?? 2000;
     console.log(`Snapsis simulate: ${count} rounds, ${intervalMs}ms interval`);
     console.log("Watch the dashboard at http://localhost:8787 for live updates.\n");
